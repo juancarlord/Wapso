@@ -1,93 +1,69 @@
-# WhatsApp Inbox
+# WhatsApp Contact Center
 
-A WhatsApp Web-style inbox built with Next.js for the WhatsApp Cloud API. Send messages, templates, and interactive buttons with a familiar UI.
+A multi-agent WhatsApp Contact Center built with Next.js and the WhatsApp Cloud API. This project evolved from a single-user inbox into a fully-fledged customer service platform designed to be hosted locally on a private intranet.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fgokapso%2Fwhatsapp-cloud-inbox&env=PHONE_NUMBER_ID,KAPSO_API_KEY,WABA_ID&envDescription=Get%20these%20credentials%20from%20app.kapso.ai&envLink=https%3A%2F%2Fapp.kapso.ai)
+## Features (In Development)
 
-![WhatsApp Cloud Inbox](https://cdn.jsdelivr.net/gh/gokapso/whatsapp-cloud-inbox@main/assets/kapso-whatsapp-inbox.png)
+- **Multi-Agent Workspace** - Agents have their own views and assigned conversations.
+- **Queue System** - Incoming WhatsApp messages are automatically routed and queued for available agents.
+- **Admin Dashboard** - Admins can monitor agent load and manually reassign conversations.
+- **Rich Media Support** - Full support for images, videos, audio, and documents.
+- **Customer Context** - A dedicated panel showing contact history and aggregated files.
+- **Template Messages** - Enforces the WhatsApp 24-hour rule, falling back to templates when necessary.
 
-## Features
+## Tech Stack
 
-- **Real-time messaging** - Auto-polling keeps conversations updated
-- **Template messages** - Full support for WhatsApp templates with parameters (header, body, buttons)
-- **Interactive messages** - Send button messages with up to 3 custom actions
-- **Media support** - Send images, videos, documents, and audio
-- **24-hour window enforcement** - Automatically restricts messaging outside WhatsApp's window
-- **Failed message indicators** - Visual feedback for delivery failures
-- **WhatsApp-style UI** - Familiar interface with read receipts, timestamps, and message bubbles
+- **Frontend:** Next.js 15, React 19, Tailwind CSS v4, Radix UI (shadcn/ui)
+- **Backend:** Next.js API Routes (Node.js)
+- **Database:** PostgreSQL (Self-Hosted)
+- **ORM:** Prisma
+- **WhatsApp Provider:** Kapso API (`@kapso/whatsapp-cloud-api`)
 
-## Setup
+## Prerequisites
 
-### 1. Get Kapso credentials
+To run this contact center locally on your intranet, you will need:
 
-1. Create account at [app.kapso.ai](https://app.kapso.ai)
-2. Connect a WhatsApp number
-3. Get your credentials:
+1. **Node.js** (v20+)
+2. **PostgreSQL** installed locally (or accessible on your network)
+3. Kapso API Credentials:
    - `PHONE_NUMBER_ID`
    - `KAPSO_API_KEY`
    - `WABA_ID`
 
-### 2. Clone and install
+## Local Setup
 
+### 1. Clone & Install
 ```bash
-git clone https://github.com/gokapso/whatsapp-cloud-inbox.git
-cd whatsapp-cloud-inbox
 npm install
 ```
 
-### 3. Environment variables
-
-Create `.env`:
-
+### 2. Environment Variables
+Create a `.env` file in the root directory:
 ```env
+# Kapso WhatsApp Credentials
 PHONE_NUMBER_ID=your_phone_number_id
 KAPSO_API_KEY=your_kapso_api_key
 WABA_ID=your_business_account_id
+
+# Database Connection (Adjust to your local Postgres setup)
+DATABASE_URL="postgresql://username:password@localhost:5432/contact_center"
 ```
 
-### 4. Run
+### 3. Database Initialization
+```bash
+npx prisma generate
+npx prisma db push
+```
 
+### 4. Run the Application
 ```bash
 npm run dev
 ```
+Open [http://localhost:4000](http://localhost:4000) in your browser.
 
-Open [http://localhost:4000](http://localhost:4000)
+## Architecture
 
-## Key Features
-
-### Template Messages
-
-Send WhatsApp-approved templates with dynamic parameters:
-- **Header + Body + Button parameters** - Full template support
-- **Named and positional parameters** - Automatic detection
-- **Two-step flow** - Select template → Fill parameters → Send
-
-### Interactive Messages
-
-Create button messages without templates:
-- **Header (optional)** + **Body (required)** + **Buttons (1-3)**
-- Each button gets a unique ID and title (max 20 chars)
-- Ideal for quick replies, confirmations, menu selections
-
-### 24-Hour Window
-
-Automatically enforces WhatsApp's messaging policy:
-- **Within 24h** - Send regular messages freely
-- **Outside 24h** - Template-only mode with clear messaging
-- **No inbound messages** - Guide users to send templates
-
-### Message Types
-
-- ✅ Text messages
-- ✅ Images, videos, audio, documents
-- ✅ Template messages (with all parameter types)
-- ✅ Interactive button messages
-- ✅ Failed message indicators
-
-## Contributing
-
-Issues and PRs welcome. Keep it simple.
+This application maintains its own local state via PostgreSQL to handle agent assignments, queues, and user roles, while offloading the raw WhatsApp message sending/receiving to the Kapso API via Webhooks.
 
 ## License
-
 MIT
