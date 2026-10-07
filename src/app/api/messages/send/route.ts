@@ -15,7 +15,13 @@ export async function POST(request: Request) {
       );
     }
 
-    let result;
+    const isBsuid = to.includes('.');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const basePayload: any = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      ...(isBsuid ? { recipient: to } : { to })
+    };
 
     // Send media message
     if (file) {
@@ -30,45 +36,35 @@ export async function POST(request: Request) {
         fileName: file.name
       });
 
-      // Send message with media
-      if (mediaType === 'image') {
-        result = await whatsappClient.messages.sendImage({
-          phoneNumberId: PHONE_NUMBER_ID,
-          to,
-          image: { id: uploadResult.id, caption: body || undefined }
-        });
-      } else if (mediaType === 'video') {
-        result = await whatsappClient.messages.sendVideo({
-          phoneNumberId: PHONE_NUMBER_ID,
-          to,
-          video: { id: uploadResult.id, caption: body || undefined }
-        });
-      } else if (mediaType === 'audio') {
-        result = await whatsappClient.messages.sendAudio({
-          phoneNumberId: PHONE_NUMBER_ID,
-          to,
-          audio: { id: uploadResult.id }
-        });
-      } else {
-        result = await whatsappClient.messages.sendDocument({
-          phoneNumberId: PHONE_NUMBER_ID,
-          to,
-          document: { id: uploadResult.id, caption: body || undefined, filename: file.name }
-        });
+      basePayload.type = mediaType;
+      basePayload[mediaType] = { id: uploadResult.id };
+      if (body) {
+        basePayload[mediaType].caption = body;
+      }
+      if (mediaType === 'document') {
+        basePayload[mediaType].filename = file.name;
       }
     } else if (body) {
-      // Send text message
-      result = await whatsappClient.messages.sendText({
-        phoneNumberId: PHONE_NUMBER_ID,
-        to,
-        body
-      });
+      basePayload.type = 'text';
+      basePayload.text = { body };
     } else {
       return NextResponse.json(
         { error: 'Either body or file is required' },
         { status: 400 }
       );
     }
+
+    const response = await whatsappClient.request('POST', `/${PHONE_NUMBER_ID}/messages`, {
+      body: basePayload
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Failed to send message via Kapso API:', errorText);
+      throw new Error(`Failed to send message: ${errorText}`);
+    }
+
+    const result = await response.json();
 
     return NextResponse.json(result);
   } catch (error) {

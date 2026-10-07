@@ -84,105 +84,120 @@ export async function GET(
     const parsedLimit = Number.parseInt(searchParams.get('limit') ?? '', 10);
     const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : 50;
 
-    const response = await whatsappClient.messages.listByConversation({
-      phoneNumberId: PHONE_NUMBER_ID,
-      conversationId,
-      limit,
-      fields: buildKapsoFields([
-        'direction',
-        'status',
-        'processing_status',
-        'phone_number',
-        'has_media',
-        'media_data',
-        'media_url',
-        'whatsapp_conversation_id',
-        'contact_name',
-        'message_type_data',
-        'content',
-        'flow_response',
-        'flow_token',
-        'flow_name',
-        'order_text'
-      ])
-    });
+    const conversationIds = conversationId.split(',');
+    
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let allTransformedData: any[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let finalPaging: any = null;
 
-    // Transform messages to match frontend expectations
-    const transformedData = response.data.map((msg: MetaMessage) => {
-      const { image, video, audio, document, sticker, text, reaction, kapso } = msg;
-      const kapsoExtensions = kapso as KapsoMessageExtensions | undefined;
-      const messageTypeData = extractMessageTypeData(kapsoExtensions?.messageTypeData);
-      const kapsoMediaData = extractMediaData(kapsoExtensions?.mediaData);
+    for (const id of conversationIds) {
+      const response = await whatsappClient.messages.listByConversation({
+        phoneNumberId: PHONE_NUMBER_ID,
+        conversationId: id,
+        limit,
+        fields: buildKapsoFields([
+          'direction',
+          'status',
+          'processing_status',
+          'phone_number',
+          'has_media',
+          'media_data',
+          'media_url',
+          'whatsapp_conversation_id',
+          'contact_name',
+          'message_type_data',
+          'content',
+          'flow_response',
+          'flow_token',
+          'flow_name',
+          'order_text'
+        ])
+      });
 
-      const mediaId =
-        image?.id ??
-        video?.id ??
-        audio?.id ??
-        document?.id ??
-        sticker?.id ??
-        (typeof kapsoExtensions?.mediaData?.id === 'string' ? kapsoExtensions.mediaData.id : undefined);
+      // Transform messages to match frontend expectations
+      const transformedData = response.data.map((msg: MetaMessage) => {
+        const { image, video, audio, document, sticker, text, reaction, kapso } = msg;
+        const kapsoExtensions = kapso as KapsoMessageExtensions | undefined;
+        const messageTypeData = extractMessageTypeData(kapsoExtensions?.messageTypeData);
+        const kapsoMediaData = extractMediaData(kapsoExtensions?.mediaData);
 
-      const mediaUrl =
-        image?.link ??
-        video?.link ??
-        audio?.link ??
-        document?.link ??
-        sticker?.link ??
-        (typeof kapsoExtensions?.mediaUrl === 'string' ? kapsoExtensions.mediaUrl : undefined) ??
-        (typeof kapsoExtensions?.mediaData?.url === 'string' ? kapsoExtensions.mediaData.url : undefined);
+        const mediaId =
+          image?.id ??
+          video?.id ??
+          audio?.id ??
+          document?.id ??
+          sticker?.id ??
+          (typeof kapsoExtensions?.mediaData?.id === 'string' ? kapsoExtensions.mediaData.id : undefined);
 
-      const hasMedia =
-        Boolean(kapsoExtensions?.hasMedia) ||
-        Boolean(mediaId) ||
-        ['image', 'video', 'audio', 'document', 'sticker'].includes(msg.type);
+        const mediaUrl =
+          image?.link ??
+          video?.link ??
+          audio?.link ??
+          document?.link ??
+          sticker?.link ??
+          (typeof kapsoExtensions?.mediaUrl === 'string' ? kapsoExtensions.mediaUrl : undefined) ??
+          (typeof kapsoExtensions?.mediaData?.url === 'string' ? kapsoExtensions.mediaData.url : undefined);
 
-      const resolvedMediaData = mediaUrl
-        ? {
-            url: mediaUrl,
-            filename: document?.filename ?? messageTypeData?.filename ?? kapsoMediaData.filename,
-            contentType: messageTypeData?.mimeType ?? kapsoMediaData.contentType,
-            byteSize: kapsoMediaData.byteSize
+        const hasMedia =
+          Boolean(kapsoExtensions?.hasMedia) ||
+          Boolean(mediaId) ||
+          ['image', 'video', 'audio', 'document', 'sticker'].includes(msg.type);
+
+        const resolvedMediaData = mediaUrl
+          ? {
+              url: mediaUrl,
+              filename: document?.filename ?? messageTypeData?.filename ?? kapsoMediaData.filename,
+              contentType: messageTypeData?.mimeType ?? kapsoMediaData.contentType,
+              byteSize: kapsoMediaData.byteSize
+            }
+          : undefined;
+
+        const kapsoContent = normaliseKapsoContent(kapsoExtensions?.content);
+        const textBody = typeof text?.body === 'string' ? text.body : undefined;
+        const reactionEmoji = typeof reaction?.emoji === 'string' ? reaction.emoji : undefined;
+
+        const fallbackCaption =
+          (typeof image?.caption === 'string' && image.caption) ||
+          (typeof video?.caption === 'string' && video.caption) ||
+          (typeof document?.caption === 'string' && document.caption) ||
+          undefined;
+
+        const lastMessageTimestamp = (kapsoExtensions as WithOptionalTimestamp | undefined)?.lastMessageTimestamp;
+
+        return {
+          id: msg.id,
+          direction: typeof kapsoExtensions?.direction === 'string' ? kapsoExtensions.direction : 'inbound',
+          content: kapsoContent ?? textBody ?? reactionEmoji ?? fallbackCaption ?? '',
+          createdAt: toIsoString(msg.timestamp, lastMessageTimestamp),
+          status: typeof kapsoExtensions?.status === 'string' ? kapsoExtensions.status : undefined,
+          phoneNumber: typeof kapsoExtensions?.phoneNumber === 'string' ? kapsoExtensions.phoneNumber : msg.from,
+          hasMedia,
+          mediaData: resolvedMediaData,
+          reactionEmoji,
+          reactedToMessageId: typeof reaction?.messageId === 'string'
+            ? reaction.messageId
+            : messageTypeData?.messageId,
+          filename: document?.filename ?? messageTypeData?.filename ?? kapsoMediaData.filename,
+          mimeType: messageTypeData?.mimeType ?? kapsoMediaData.contentType,
+          messageType: msg.type,
+          caption: fallbackCaption,
+          metadata: {
+            mediaId
           }
-        : undefined;
+        };
+      });
 
-      const kapsoContent = normaliseKapsoContent(kapsoExtensions?.content);
-      const textBody = typeof text?.body === 'string' ? text.body : undefined;
-      const reactionEmoji = typeof reaction?.emoji === 'string' ? reaction.emoji : undefined;
+      allTransformedData = allTransformedData.concat(transformedData);
+      if (!finalPaging) finalPaging = response.paging;
+    }
 
-      const fallbackCaption =
-        (typeof image?.caption === 'string' && image.caption) ||
-        (typeof video?.caption === 'string' && video.caption) ||
-        (typeof document?.caption === 'string' && document.caption) ||
-        undefined;
-
-      const lastMessageTimestamp = (kapsoExtensions as WithOptionalTimestamp | undefined)?.lastMessageTimestamp;
-
-      return {
-        id: msg.id,
-        direction: typeof kapsoExtensions?.direction === 'string' ? kapsoExtensions.direction : 'inbound',
-        content: kapsoContent ?? textBody ?? reactionEmoji ?? fallbackCaption ?? '',
-        createdAt: toIsoString(msg.timestamp, lastMessageTimestamp),
-        status: typeof kapsoExtensions?.status === 'string' ? kapsoExtensions.status : undefined,
-        phoneNumber: typeof kapsoExtensions?.phoneNumber === 'string' ? kapsoExtensions.phoneNumber : msg.from,
-        hasMedia,
-        mediaData: resolvedMediaData,
-        reactionEmoji,
-        reactedToMessageId: typeof reaction?.messageId === 'string'
-          ? reaction.messageId
-          : messageTypeData?.messageId,
-        filename: document?.filename ?? messageTypeData?.filename ?? kapsoMediaData.filename,
-        mimeType: messageTypeData?.mimeType ?? kapsoMediaData.contentType,
-        messageType: msg.type,
-        caption: fallbackCaption,
-        metadata: {
-          mediaId
-        }
-      };
-    });
+    // Sort all messages by createdAt ascending
+    allTransformedData.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
     return NextResponse.json({
-      data: transformedData,
-      paging: response.paging
+      data: allTransformedData,
+      paging: finalPaging
     });
   } catch (error) {
     console.error('Error fetching messages:', error);

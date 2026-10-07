@@ -17,6 +17,8 @@ type Conversation = {
   status: string;
   lastActiveAt: string;
   phoneNumberId: string;
+  bsuid?: string;
+  username?: string | null;
   metadata?: Record<string, unknown>;
   contactName?: string;
   messagesCount?: number;
@@ -268,8 +270,18 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
                 <div className="flex-1 min-w-0 flex justify-between items-start gap-4 overflow-hidden">
                   <div className="flex-1 min-w-0 overflow-hidden">
                     <p className="font-medium text-[#111b21] truncate">
-                      {conversation.contactName || conversation.phoneNumber}
+                      {conversation.contactName || (conversation.username ? `@${conversation.username}` : conversation.phoneNumber)}
                     </p>
+                    {conversation.contactName && conversation.username && (
+                      <p className="text-sm text-[#667781] truncate mt-0.5">
+                        @{conversation.username}
+                      </p>
+                    )}
+                    {conversation.contactName && !conversation.username && conversation.phoneNumber && (
+                      <p className="text-sm text-[#667781] truncate mt-0.5">
+                        {conversation.phoneNumber}
+                      </p>
+                    )}
                     {conversation.lastMessage && (
                       <p className="text-sm text-[#667781] truncate mt-0.5">
                         {conversation.lastMessage.direction === 'outbound' && (

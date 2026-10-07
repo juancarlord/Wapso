@@ -116,13 +116,15 @@ function getDisabledInputMessage(messages: Message[]): string {
 type Props = {
   conversationId?: string;
   phoneNumber?: string;
+  bsuid?: string;
+  username?: string | null;
   contactName?: string;
   onTemplateSent?: (phoneNumber: string) => Promise<void>;
   onBack?: () => void;
   isVisible?: boolean;
 };
 
-export function MessageView({ conversationId, phoneNumber, contactName, onTemplateSent, onBack, isVisible = false }: Props) {
+export function MessageView({ conversationId, phoneNumber, bsuid, username, contactName, onTemplateSent, onBack, isVisible = false }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -269,12 +271,23 @@ export function MessageView({ conversationId, phoneNumber, contactName, onTempla
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if ((!messageInput.trim() && !selectedFile) || !phoneNumber || sending) return;
+    if (!messageInput.trim() && !selectedFile) {
+      return;
+    }
+    
+    if (!phoneNumber && !bsuid) {
+      alert('Error: This conversation does not have a valid phone number or username to send to.');
+      return;
+    }
+
+    if (sending) {
+      return;
+    }
 
     setSending(true);
     try {
       const formData = new FormData();
-      formData.append('to', phoneNumber);
+      formData.append('to', phoneNumber || bsuid || '');
       if (messageInput.trim()) {
         formData.append('body', messageInput);
       }
@@ -282,16 +295,22 @@ export function MessageView({ conversationId, phoneNumber, contactName, onTempla
         formData.append('file', selectedFile);
       }
 
-      await fetch('/api/messages/send', {
+      const response = await fetch('/api/messages/send', {
         method: 'POST',
         body: formData
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Server responded with status ${response.status}`);
+      }
 
       setMessageInput('');
       handleRemoveFile();
       await fetchMessages();
     } catch (error) {
       console.error('Error sending message:', error);
+      alert(error instanceof Error ? error.message : 'An error occurred while sending the message');
     } finally {
       setSending(false);
     }
@@ -435,8 +454,11 @@ const handleRotateRight = () => {
               </Button>
             )}
             <div className="flex-1 min-w-0">
-              <h2 className="text-base font-medium text-[#111b21] truncate">{contactName || phoneNumber || 'Conversation'}</h2>
-              {contactName && phoneNumber && (
+              <h2 className="text-base font-medium text-[#111b21] truncate">{contactName || (username ? `@${username}` : phoneNumber) || 'Conversation'}</h2>
+              {contactName && username && (
+                <p className="text-xs text-[#667781] truncate">@{username}</p>
+              )}
+              {contactName && !username && phoneNumber && (
                 <p className="text-xs text-[#667781] truncate">{phoneNumber}</p>
               )}
             </div>
@@ -489,12 +511,14 @@ const handleRotateRight = () => {
                     {message.hasMedia && message.mediaData?.url ? (
                       <div className="mb-2">
                         {message.messageType === 'sticker' ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
                           <img
                             src={message.mediaData.url}
                             alt="Sticker"
                             className="max-w-[150px] max-h-[150px] h-auto"
                           />
                         ) : message.mediaData.contentType?.startsWith('image/') || message.messageType === 'image' ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
                           <img
                             src={message.mediaData.url}
                             alt="Media"
@@ -603,6 +627,7 @@ const handleRotateRight = () => {
               <div className="p-3 border-b border-[#d1d7db] bg-white">
                 <div className="flex items-start gap-3">
                   {filePreview ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
                     <img src={filePreview} alt="Preview" className="w-16 h-16 object-cover rounded" />
                   ) : (
                     <div className="w-16 h-16 bg-[#f0f2f5] rounded flex items-center justify-center">
@@ -797,6 +822,7 @@ const handleRotateRight = () => {
       onMouseLeave={handleMouseUp}
     >
       {previewImage && (
+        /* eslint-disable-next-line @next/next/no-img-element */
         <img
           src={previewImage}
           alt="Preview"

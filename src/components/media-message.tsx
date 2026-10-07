@@ -50,6 +50,7 @@ export function MediaMessage({ mediaId, messageType, caption, filename, isOutbou
   return (
     <div>
       {messageType === 'image' && (
+        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={mediaUrl}
           alt={caption || 'Image'}

@@ -7,6 +7,8 @@ import { MessageView } from '@/components/message-view';
 type Conversation = {
   id: string;
   phoneNumber: string;
+  bsuid?: string;
+  username?: string | null;
   contactName?: string;
 };
 
@@ -42,6 +44,8 @@ export default function Home() {
       <MessageView
         conversationId={selectedConversation?.id}
         phoneNumber={selectedConversation?.phoneNumber}
+        bsuid={selectedConversation?.bsuid}
+        username={selectedConversation?.username}
         contactName={selectedConversation?.contactName}
         onTemplateSent={handleTemplateSent}
         onBack={handleBackToList}

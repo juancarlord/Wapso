@@ -46,6 +46,10 @@ export async function GET(request: Request) {
       ])
     });
 
+    if (response.data && response.data.length > 0) {
+      console.log('[API] First conversation data:', JSON.stringify(response.data[0], null, 2));
+    }
+
     // Transform conversations to match frontend expectations
     const transformedData = response.data.map((conversation: ConversationRecord) => {
       const kapso = conversation.kapso;
@@ -56,6 +60,8 @@ export async function GET(request: Request) {
       return {
         id: conversation.id,
         phoneNumber: conversation.phoneNumber ?? '',
+        bsuid: conversation.businessScopedUserId ?? '',
+        username: conversation.username ?? null,
         status: conversation.status ?? 'unknown',
         lastActiveAt: typeof conversation.lastActiveAt === 'string' ? conversation.lastActiveAt : undefined,
         phoneNumberId: conversation.phoneNumberId ?? PHONE_NUMBER_ID,
@@ -72,11 +78,49 @@ export async function GET(request: Request) {
       };
     });
 
-    console.log(`[API] Fetched ${transformedData.length} conversations`);
+    // Merge conversations that share the same contactName or phoneNumber
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const finalData: any[] = [];
+    transformedData.forEach(conv => {
+      const existing = finalData.find(e => 
+        (e.phoneNumber && conv.phoneNumber && e.phoneNumber === conv.phoneNumber) ||
+        (e.contactName && conv.contactName && e.contactName === conv.contactName)
+      );
+
+      if (existing) {
+        // Merge the IDs by comma separating them
+        if (!existing.id.split(',').includes(conv.id)) {
+          existing.id = `${existing.id},${conv.id}`;
+        }
+        if (!existing.bsuid) existing.bsuid = conv.bsuid;
+        if (!existing.username) existing.username = conv.username;
+        if (!existing.phoneNumber) existing.phoneNumber = conv.phoneNumber;
+        if (!existing.contactName) existing.contactName = conv.contactName;
+        
+        if (conv.lastActiveAt) {
+          if (!existing.lastActiveAt || new Date(conv.lastActiveAt) > new Date(existing.lastActiveAt)) {
+            existing.lastActiveAt = conv.lastActiveAt;
+            existing.lastMessage = conv.lastMessage;
+          }
+        }
+      } else {
+        finalData.push({ ...conv });
+      }
+    });
+
+    // Sort final merged data by lastActiveAt descending
+    finalData.sort((a, b) => {
+      const timeA = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+      const timeB = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+      return timeB - timeA;
+    });
+
+    console.log(`[API] Fetched ${finalData.length} conversations (after merge)`);
     console.log('[API] conversations.list -> items:', response.data?.length, 'paging:', response.paging);
 
     return NextResponse.json({
-      data: transformedData,
+      data: finalData,
+      rawData: response.data,
       paging: response.paging // includes 'after' cursor for next page
     });
   } catch (error) {

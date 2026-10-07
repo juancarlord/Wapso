@@ -83,11 +83,11 @@ export async function POST(request: Request) {
             } as TemplateButtonParameter;
             buttonParameters.push(button);
           }
-
           button.parameters.push({
             type: 'text',
             text: textValue,
             parameter_name: paramDef.name
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
           } as any);
         }
       });
