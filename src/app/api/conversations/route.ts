@@ -1,4 +1,6 @@
 import { requireUser } from '@/lib/auth';
+import { getReadMarks } from '@/lib/db';
+import { mediaPreviewText } from '@/lib/media-text';
 import { NextResponse } from 'next/server';
 import {
   buildKapsoFields,
@@ -58,7 +60,7 @@ export async function GET(request: Request) {
     const transformedData = response.data.map((conversation: ConversationRecord) => {
       const kapso = conversation.kapso;
 
-      const lastMessageText = typeof kapso?.lastMessageText === 'string' ? kapso.lastMessageText : undefined;
+      const lastMessageText = typeof kapso?.lastMessageText === 'string' ? mediaPreviewText(kapso.lastMessageText) || undefined : undefined;
       const lastMessageType = typeof kapso?.lastMessageType === 'string' ? kapso.lastMessageType : undefined;
 
       return {
@@ -70,6 +72,7 @@ export async function GET(request: Request) {
         lastActiveAt: typeof conversation.lastActiveAt === 'string' ? conversation.lastActiveAt : undefined,
         phoneNumberId: conversation.phoneNumberId ?? PHONE_NUMBER_ID,
         metadata: conversation.metadata ?? {},
+        lastInboundAt: typeof kapso?.lastInboundAt === 'string' ? kapso.lastInboundAt : undefined,
         contactName: typeof kapso?.contactName === 'string' ? kapso.contactName : undefined,
         messagesCount: typeof kapso?.messagesCount === 'number' ? kapso.messagesCount : undefined,
         lastMessage: lastMessageText
@@ -82,10 +85,20 @@ export async function GET(request: Request) {
       };
     });
 
+    // Per-user unread: a member conversation is unread if its latest inbound is newer than this user's read mark.
+    const readMarks = getReadMarks(authUser.id);
+    const isUnread = (c: { id: string; lastInboundAt?: string; lastActiveAt?: string; lastMessage?: { direction: string } }) => {
+      const a = c.lastInboundAt ? Date.parse(c.lastInboundAt) : NaN;
+      const b = c.lastMessage?.direction === 'inbound' && c.lastActiveAt ? Date.parse(c.lastActiveAt) : NaN;
+      const t = Math.max(Number.isFinite(a) ? a : 0, Number.isFinite(b) ? b : 0);
+      return t > 0 && t > (readMarks.get(c.id) ?? 0);
+    };
+    const withUnread = transformedData.map((c) => ({ ...c, unread: isUnread(c) }));
+
     // Merge conversations that share the same contactName or phoneNumber
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const finalData: any[] = [];
-    transformedData.forEach(conv => {
+    withUnread.forEach(conv => {
       const existing = finalData.find(e => 
         (e.phoneNumber && conv.phoneNumber && e.phoneNumber === conv.phoneNumber) ||
         (e.contactName && conv.contactName && e.contactName === conv.contactName)
@@ -100,6 +113,10 @@ export async function GET(request: Request) {
         if (!existing.username) existing.username = conv.username;
         if (!existing.phoneNumber) existing.phoneNumber = conv.phoneNumber;
         if (!existing.contactName) existing.contactName = conv.contactName;
+        existing.unread = existing.unread || conv.unread;
+        if (conv.lastInboundAt && (!existing.lastInboundAt || Date.parse(conv.lastInboundAt) > Date.parse(existing.lastInboundAt))) {
+          existing.lastInboundAt = conv.lastInboundAt;
+        }
         
         if (conv.lastActiveAt) {
           if (!existing.lastActiveAt || new Date(conv.lastActiveAt) > new Date(existing.lastActiveAt)) {
@@ -124,7 +141,6 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       data: finalData,
-      rawData: response.data,
       paging: response.paging // includes 'after' cursor for next page
     });
   } catch (error) {

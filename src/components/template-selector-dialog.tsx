@@ -155,7 +155,7 @@ export function TemplateSelectorDialog({ open, onOpenChange, phoneNumber, onTemp
 
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin text-[#00a884]" />
+            <Loader2 className="h-8 w-8 animate-spin text-brand-text" />
           </div>
         ) : templates.length === 0 ? (
           <div className="py-8 text-center text-muted-foreground">
@@ -167,18 +167,18 @@ export function TemplateSelectorDialog({ open, onOpenChange, phoneNumber, onTemp
               {templates.map((template) => (
                 <div
                   key={template.id}
-                  className="p-4 border border-[#d1d7db] rounded-lg hover:bg-[#f0f2f5] transition-colors"
+                  className="p-4 border border-line rounded-lg hover:bg-panel transition-colors"
                 >
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-medium text-[#111b21] truncate">
+                      <h3 className="font-medium text-fg truncate">
                         {template.name}
                       </h3>
                       <div className="flex items-center gap-2 mt-1">
                         <Badge variant="secondary" className={getCategoryColor(template.category)}>
                           {template.category}
                         </Badge>
-                        <span className="text-xs text-[#667781]">
+                        <span className="text-xs text-muted-fg">
                           {template.language}
                         </span>
                       </div>
@@ -187,7 +187,7 @@ export function TemplateSelectorDialog({ open, onOpenChange, phoneNumber, onTemp
                       onClick={() => handleSelectTemplate(template)}
                       disabled={sending !== null}
                       size="sm"
-                      className="bg-[#00a884] hover:bg-[#008f6f]"
+                      className="bg-brand hover:bg-brand-hover"
                     >
                       {sending === template.id ? (
                         <Loader2 className="h-4 w-4 animate-spin" />

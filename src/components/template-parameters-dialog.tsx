@@ -134,12 +134,12 @@ export function TemplateParametersDialog({
             {parameterInfo.parameters.map((param) => (
               <div key={param.name} className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <Label htmlFor={param.name} className="text-[#111b21]">
+                  <Label htmlFor={param.name} className="text-fg">
                     {formatParameterName(param.name)}
                   </Label>
                   <Badge
                     variant="secondary"
-                    className="text-xs bg-[#f0f2f5] text-[#667781]"
+                    className="text-xs bg-panel text-muted-fg"
                   >
                     {param.component}
                   </Badge>
@@ -149,10 +149,10 @@ export function TemplateParametersDialog({
                   value={parameterValues[param.name] || ''}
                   onChange={(e) => handleParameterChange(param.name, e.target.value)}
                   placeholder={param.example || `Enter ${formatParameterName(param.name)}`}
-                  className="bg-white border-[#d1d7db] focus-visible:ring-[#00a884]"
+                  className="bg-surface border-line focus-visible:ring-brand"
                 />
                 {param.example && (
-                  <p className="text-xs text-[#667781]">
+                  <p className="text-xs text-muted-fg">
                     Example: {param.example}
                   </p>
                 )}
@@ -170,7 +170,7 @@ export function TemplateParametersDialog({
           <Button
             onClick={handleSend}
             disabled={!allParametersFilled || sending}
-            className="bg-[#00a884] hover:bg-[#008f6f]"
+            className="bg-brand hover:bg-brand-hover"
           >
             {sending ? (
               <Loader2 className="h-4 w-4 animate-spin" />

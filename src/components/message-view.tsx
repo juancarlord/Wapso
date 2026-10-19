@@ -1,10 +1,12 @@
 'use client';
 
+import { formatBytes } from '@/lib/media-text';
+
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { format, isValid, isToday, isYesterday, differenceInHours } from 'date-fns';
-import { RefreshCw, Paperclip, Send, X, AlertCircle, MessageSquare, XCircle, ListTree, ArrowLeft, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { RefreshCw, Paperclip, Send, X, AlertCircle, MessageSquare, XCircle, ListTree, ArrowLeft, Clock, Check, CheckCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { MediaMessage } from '@/components/media-message';
+import { MediaMessage, mediaKindFrom } from '@/components/media-message';
 import { TemplateSelectorDialog } from '@/components/template-selector-dialog';
 import { InteractiveMessageDialog } from '@/components/interactive-message-dialog';
 import { useAutoPolling } from '@/hooks/use-auto-polling';
@@ -13,13 +15,43 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { ImageViewer, isViewerSafeSrc, type ViewerImage } from '@/components/image-viewer';
 import type { MediaData } from '@kapso/whatsapp-cloud-api';
+
+type PendingMessage = {
+  localId: string;
+  conversationId: string;
+  waId?: string;
+  content: string;
+  file?: File;
+  previewUrl?: string;
+  status: 'sending' | 'sent' | 'failed';
+  createdAt: string;
+};
+
+function sentIdFrom(result: unknown): string | undefined {
+  const msgs = (result as { messages?: Array<{ id?: unknown }> } | null)?.messages;
+  const id = Array.isArray(msgs) ? msgs[0]?.id : undefined;
+  return typeof id === 'string' ? id : undefined;
+}
+
+/** Outgoing status icon with an accessible label. */
+function StatusIcon({ status }: { status?: string }) {
+  if (status === 'sending' || status === 'pending' || status === 'queued') {
+    return <Clock className="h-3.5 w-3.5 text-muted-fg" aria-label="Enviando" role="img" />;
+  }
+  if (status === 'failed') return <XCircle className="h-3.5 w-3.5 text-red-500" aria-label="No enviado" role="img" />;
+  if (status === 'read') return <CheckCheck className="h-3.5 w-3.5 text-tick" aria-label="Leído" role="img" />;
+  if (status === 'delivered') return <CheckCheck className="h-3.5 w-3.5 text-muted-fg" aria-label="Entregado" role="img" />;
+  if (status === 'sent') return <Check className="h-3.5 w-3.5 text-muted-fg" aria-label="Enviado" role="img" />;
+  return null;
+}
 
 type Message = {
   id: string;
   direction: 'inbound' | 'outbound';
   content: string;
+  senderName?: string;
   createdAt: string;
   status?: string;
   phoneNumber: string;
@@ -28,7 +60,8 @@ type Message = {
     url: string;
     contentType?: string;
     filename?: string;
-  } | (MediaData & { url: string });
+    sizeText?: string;
+  } | (MediaData & { url: string; sizeText?: string });
   reactionEmoji?: string | null;
   reactedToMessageId?: string | null;
   filename?: string | null;
@@ -107,10 +140,10 @@ function getDisabledInputMessage(messages: Message[]): string {
   const inboundMessages = messages.filter(msg => msg.direction === 'inbound');
 
   if (inboundMessages.length === 0) {
-    return "User hasn't messaged yet. Send a template message or wait for them to reply.";
+    return 'Este contacto aún no te ha escrito. Envía una plantilla o espera su respuesta.';
   }
 
-  return "Last message was over 24 hours ago. Send a template message or wait for the user to message you.";
+  return 'El último mensaje fue hace más de 24 horas. Envía una plantilla o espera a que el contacto te escriba.';
 }
 
 type Props = {
@@ -129,24 +162,25 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [messageInput, setMessageInput] = useState('');
-  const [sending, setSending] = useState(false);
+  const [pending, setPending] = useState<PendingMessage[]>([]);
+  const [myName, setMyName] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [canSendRegularMessage, setCanSendRegularMessage] = useState(true);
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [showInteractiveDialog, setShowInteractiveDialog] = useState(false);
   const [isNearBottom, setIsNearBottom] = useState(true);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(100);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [rotation, setRotation] = useState(0);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  // Close the viewer when switching conversations.
+  useEffect(() => { setViewerIndex(null); }, [conversationId]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previousMessageCountRef = useRef(0);
-  const previewContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetch('/api/auth/me').then((r) => (r.ok ? r.json() : null)).then((me) => setMyName(me?.name || me?.username || null)).catch(() => {});
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -182,6 +216,12 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
       });
 
       setMessages(sortedMessages);
+      const serverIds = new Set(sortedMessages.map((m: Message) => m.id));
+      setPending((prev) => {
+        const keep = prev.filter((p) => !(p.waId && serverIds.has(p.waId)));
+        prev.filter((p) => !keep.includes(p) && p.previewUrl).forEach((p) => URL.revokeObjectURL(p.previewUrl!));
+        return keep.length === prev.length ? prev : keep;
+      });
       previousMessageCountRef.current = sortedMessages.length;
     } catch (error) {
       console.error('Error fetching messages:', error);
@@ -203,7 +243,7 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
     if (isNearBottom) {
       scrollToBottom();
     }
-  }, [messages, isNearBottom]);
+  }, [messages, pending, isNearBottom]);
 
   useEffect(() => {
     setCanSendRegularMessage(isWithin24HourWindow(messages));
@@ -268,52 +308,83 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
     }
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Guards against double sends: one request per local message at a time.
+  const inFlightRef = useRef<Set<string>>(new Set());
 
-    if (!messageInput.trim() && !selectedFile) {
-      return;
-    }
-    
-    if (!phoneNumber && !bsuid) {
-      alert('Error: This conversation does not have a valid phone number or username to send to.');
-      return;
-    }
-
-    if (sending) {
-      return;
-    }
-
-    setSending(true);
+  const sendPending = useCallback(async (p: PendingMessage, to: string) => {
+    if (inFlightRef.current.has(p.localId)) return;
+    inFlightRef.current.add(p.localId);
+    setPending((prev) => prev.map((x) => (x.localId === p.localId ? { ...x, status: 'sending' } : x)));
     try {
       const formData = new FormData();
-      formData.append('to', phoneNumber || bsuid || '');
-      if (messageInput.trim()) {
-        formData.append('body', messageInput);
-      }
-      if (selectedFile) {
-        formData.append('file', selectedFile);
-      }
-
-      const response = await fetch('/api/messages/send', {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server responded with status ${response.status}`);
-      }
-
-      setMessageInput('');
-      handleRemoveFile();
-      await fetchMessages();
+      formData.append('to', to);
+      if (p.content) formData.append('body', p.content);
+      if (p.file) formData.append('file', p.file);
+      const response = await fetch('/api/messages/send', { method: 'POST', body: formData });
+      if (!response.ok) throw new Error(`status ${response.status}`);
+      const waId = sentIdFrom(await response.json().catch(() => null));
+      setPending((prev) => prev.map((x) => (x.localId === p.localId ? { ...x, status: 'sent', waId } : x)));
+      fetchMessages();
     } catch (error) {
       console.error('Error sending message:', error);
-      alert(error instanceof Error ? error.message : 'An error occurred while sending the message');
+      setPending((prev) => prev.map((x) => (x.localId === p.localId ? { ...x, status: 'failed' } : x)));
     } finally {
-      setSending(false);
+      inFlightRef.current.delete(p.localId);
     }
+  }, [fetchMessages]);
+
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    const content = messageInput.trim() ? messageInput : '';
+    if (!content && !selectedFile) return;
+    if (!conversationId || (!phoneNumber && !bsuid)) {
+      alert('Esta conversación no tiene un número o usuario válido para enviar.');
+      return;
+    }
+    const p: PendingMessage = {
+      localId: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      conversationId,
+      content,
+      file: selectedFile ?? undefined,
+      previewUrl: selectedFile ? URL.createObjectURL(selectedFile) : undefined,
+      status: 'sending',
+      createdAt: new Date().toISOString(),
+    };
+    setPending((prev) => [...prev, p]);
+    // Clear right away so the agent can keep typing and send several in a row.
+    setMessageInput('');
+    handleRemoveFile();
+    setIsNearBottom(true);
+    sendPending(p, phoneNumber || bsuid || '');
+  };
+
+  const retryPending = (p: PendingMessage) => {
+    if (p.status !== 'failed') return; // only failed messages can be retried
+    sendPending(p, phoneNumber || bsuid || '');
+  };
+
+  const visiblePending = pending.filter((p) => p.conversationId === conversationId);
+
+  // Every image in this conversation (server + optimistic), in display order, for the viewer.
+  const viewerImages: ViewerImage[] = [
+    ...messages.flatMap((m): ViewerImage[] => {
+      const src = m.mediaData?.url || (m.metadata?.mediaId ? `/api/media/${encodeURIComponent(m.metadata.mediaId)}` : undefined);
+      const mime = m.mediaData?.contentType || m.mimeType;
+      if (!src || !isViewerSafeSrc(src) || mediaKindFrom(m.messageType, mime) !== 'image') return [];
+      const filename = m.mediaData?.filename || m.filename || null;
+      const sender = m.direction === 'outbound'
+        ? (m.senderName ? `Enviado por ${m.senderName}` : 'Enviado')
+        : (contactName || (username ? `@${username}` : phoneNumber) || 'Contacto');
+      return [{ src, alt: `Imagen${filename ? ` ${filename}` : ''}`, filename, sender, createdAt: m.createdAt }];
+    }),
+    ...visiblePending.flatMap((p): ViewerImage[] =>
+      p.file && p.previewUrl && mediaKindFrom(undefined, p.file.type) === 'image'
+        ? [{ src: p.previewUrl, alt: `Imagen ${p.file.name}`, filename: p.file.name, sender: myName ? `Enviado por ${myName}` : 'Enviado', createdAt: p.createdAt }]
+        : []),
+  ];
+  const openViewer = (src: string) => {
+    const i = viewerImages.findIndex((v) => v.src === src);
+    if (i >= 0) setViewerIndex(i);
   };
 
   const handleTemplateSent = async () => {
@@ -325,58 +396,6 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
     }
   };
 
-  const handleRotateLeft = () => {
-  setRotation(prev => prev - 90);
-};
-
-const handleRotateRight = () => {
-  setRotation(prev => prev + 90);
-};
-  const handleZoomIn = () => {
-    setZoom(prev => Math.min(prev + 20, 300));
-  };
-
-  const handleZoomOut = () => {
-    setZoom(prev => Math.max(prev - 20, 50));
-  };
-
-  const handleResetZoom = () => {
-    setZoom(100);
-    setPan({ x: 0, y: 0 });
-  };
-
-  const handlePreviewClose = () => {
-  setPreviewImage(null);
-  setZoom(100);
-  setPan({ x: 0, y: 0 });
-  setRotation(0);
-};
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (zoom <= 100) return; // only allow dragging when zoomed in
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDragging || zoom <= 100) return;
-    const container = previewContainerRef.current;
-    if (!container) return;
-
-    const newX = e.clientX - dragStart.x;
-    const newY = e.clientY - dragStart.y;
-
-    // limit pan to reasonable bounds
-    const maxPan = (zoom - 100) * 2;
-    const limitedX = Math.max(-maxPan, Math.min(maxPan, newX));
-    const limitedY = Math.max(-maxPan, Math.min(maxPan, newY));
-
-    setPan({ x: limitedX, y: limitedY });
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
 
   if (!conversationId) {
     return (
@@ -392,10 +411,10 @@ const handleRotateRight = () => {
   if (loading) {
     return (
       <div className={cn(
-        "flex-1 flex flex-col bg-[#efeae2]",
+        "flex-1 flex flex-col bg-chat-bg",
         !isVisible && "hidden md:flex"
       )}>
-        <div className="p-3 border-b border-[#d1d7db] bg-[#f0f2f5]">
+        <div className="p-3 border-b border-line bg-panel">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 flex-1">
               {onBack && (
@@ -403,7 +422,7 @@ const handleRotateRight = () => {
                   onClick={onBack}
                   variant="ghost"
                   size="icon"
-                  className="md:hidden text-[#667781] hover:bg-[#f0f2f5]"
+                  className="md:hidden text-muted-fg hover:bg-panel"
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </Button>
@@ -437,10 +456,10 @@ const handleRotateRight = () => {
 
   return (
     <div className={cn(
-      "flex-1 flex flex-col bg-[#efeae2]",
+      "flex-1 flex flex-col bg-chat-bg",
       !isVisible && "hidden md:flex"
     )}>
-      <div className="p-3 border-b border-[#d1d7db] bg-[#f0f2f5]">
+      <div className="p-3 border-b border-line bg-panel">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 flex-1 min-w-0">
             {onBack && (
@@ -448,18 +467,18 @@ const handleRotateRight = () => {
                 onClick={onBack}
                 variant="ghost"
                 size="icon"
-                className="md:hidden text-[#667781] hover:bg-[#f0f2f5] flex-shrink-0"
+                className="md:hidden text-muted-fg hover:bg-panel flex-shrink-0"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
             )}
             <div className="flex-1 min-w-0">
-              <h2 className="text-base font-medium text-[#111b21] truncate">{contactName || (username ? `@${username}` : phoneNumber) || 'Conversation'}</h2>
+              <h2 className="text-base font-medium text-fg truncate">{contactName || (username ? `@${username}` : phoneNumber) || 'Conversation'}</h2>
               {contactName && username && (
-                <p className="text-xs text-[#667781] truncate">@{username}</p>
+                <p className="text-xs text-muted-fg truncate">@{username}</p>
               )}
               {contactName && !username && phoneNumber && (
-                <p className="text-xs text-[#667781] truncate">{phoneNumber}</p>
+                <p className="text-xs text-muted-fg truncate">{phoneNumber}</p>
               )}
             </div>
           </div>
@@ -468,7 +487,7 @@ const handleRotateRight = () => {
             disabled={refreshing}
             variant="ghost"
             size="icon"
-            className="text-[#667781] hover:bg-[#f0f2f5]"
+            className="text-muted-fg hover:bg-panel"
           >
             <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
           </Button>
@@ -502,62 +521,31 @@ const handleRotateRight = () => {
                 >
                   <div
                     className={cn(
-                      'max-w-[70%] rounded-lg px-3 py-2 relative shadow-sm',
-                      message.direction === 'outbound'
-                        ? 'bg-[#d9fdd3] text-[#111b21] rounded-br-none'
-                        : 'bg-white text-[#111b21] rounded-bl-none'
+                      'max-w-[70%] rounded-lg relative',
+                      message.messageType === 'sticker'
+                        ? 'bg-transparent px-1 py-1'
+                        : message.direction === 'outbound'
+                          ? 'bg-bubble-out text-fg rounded-br-none px-3 py-2 shadow-sm'
+                          : 'bg-surface text-fg rounded-bl-none px-3 py-2 shadow-sm'
                     )}
                   >
-                    {message.hasMedia && message.mediaData?.url ? (
-                      <div className="mb-2">
-                        {message.messageType === 'sticker' ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            src={message.mediaData.url}
-                            alt="Sticker"
-                            className="max-w-[150px] max-h-[150px] h-auto"
+                    {(() => {
+                      const src = message.mediaData?.url || (message.metadata?.mediaId ? `/api/media/${encodeURIComponent(message.metadata.mediaId)}` : undefined);
+                      if (!message.hasMedia && !src) return null;
+                      const mime = message.mediaData?.contentType || message.mimeType;
+                      return (
+                        <div className={cn(message.messageType !== 'sticker' && 'mb-1')}>
+                          <MediaMessage
+                            src={src}
+                            kind={mediaKindFrom(message.messageType, mime)}
+                            filename={message.mediaData?.filename || message.filename}
+                            mimeType={mime}
+                            sizeText={message.mediaData?.sizeText}
+                            onOpenImage={(url) => openViewer(url)}
                           />
-                        ) : message.mediaData.contentType?.startsWith('image/') || message.messageType === 'image' ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            src={message.mediaData.url}
-                            alt="Media"
-                            className="rounded max-w-full h-auto max-h-96 cursor-pointer hover:opacity-90 transition-opacity"
-                            onClick={() => setPreviewImage(message.mediaData?.url || null)}
-                          />
-                        ) : message.mediaData.contentType?.startsWith('video/') || message.messageType === 'video' ? (
-                          <video
-                            src={message.mediaData.url}
-                            controls
-                            className="rounded max-w-full h-auto max-h-96"
-                          />
-                        ) : message.mediaData.contentType?.startsWith('audio/') || message.messageType === 'audio' ? (
-                          <audio src={message.mediaData.url} controls className="w-full" />
-                        ) : (
-                          <a
-                            href={message.mediaData.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={cn(
-                              'flex items-center gap-2 text-sm underline cursor-pointer hover:opacity-80',
-                              message.direction === 'outbound' ? 'text-[#00a884]' : 'text-[#00a884]'
-                            )}
-                          >
-                            📎 {message.mediaData.filename || message.filename || 'Download file'}
-                          </a>
-                        )}
-                      </div>
-                    ) : message.metadata?.mediaId && message.messageType ? (
-                      <div className="mb-2">
-                        <MediaMessage
-                          mediaId={message.metadata.mediaId}
-                          messageType={message.messageType}
-                          caption={message.caption}
-                          filename={message.filename}
-                          isOutbound={message.direction === 'outbound'}
-                        />
-                      </div>
-                    ) : null}
+                        </div>
+                      );
+                    })()}
 
                     {message.caption && (
                       <p className="text-sm break-words whitespace-pre-wrap mb-1">
@@ -565,42 +553,30 @@ const handleRotateRight = () => {
                       </p>
                     )}
 
-                    {message.content && message.content !== '[Image attached]' && (
+                    {message.content && message.content !== '[Image attached]' && message.content !== message.caption && (
                       <p className="text-sm break-words whitespace-pre-wrap">
                         {message.content}
                       </p>
                     )}
 
                     <div className="flex items-center gap-1.5 mt-1">
-                      <span className="text-[11px] text-[#667781]">
+                      {message.direction === 'outbound' && message.senderName && (
+                        <span className="text-[11px] text-muted-fg">
+                          Enviado por {message.senderName} ·
+                        </span>
+                      )}
+                      <span className="text-[11px] text-muted-fg">
                         {formatMessageTime(message.createdAt)}
                       </span>
 
-                      {message.messageType && (
-                        <span className="text-[11px] text-[#667781] opacity-60">
-                          · {message.messageType}
-                        </span>
-                      )}
 
-                      {message.direction === 'outbound' && message.status && (
-                        <>
-                          {message.status === 'failed' ? (
-                            <XCircle className="h-3.5 w-3.5 text-red-500" />
-                          ) : (
-                            <span className="text-xs text-[#53bdeb]">
-                              {message.status === 'read' ? '✓✓' :
-                               message.status === 'delivered' ? '✓✓' :
-                               message.status === 'sent' ? '✓' : ''}
-                            </span>
-                          )}
-                        </>
-                      )}
+                      {message.direction === 'outbound' && <StatusIcon status={message.status} />}
                     </div>
 
                     {message.direction === 'outbound' && message.status === 'failed' && (
                       <div className="mt-1">
                         <span className="text-[11px] text-red-500 flex items-center gap-1">
-                          Not delivered
+                          No enviado
                         </span>
                       </div>
                     )}
@@ -616,34 +592,66 @@ const handleRotateRight = () => {
             );
           })
         )}
+        {visiblePending.map((p) => (
+          <div key={p.localId} className="flex mb-2 justify-end animate-bubble-in">
+            <div className="max-w-[70%] rounded-lg px-3 py-2 relative shadow-sm bg-bubble-out text-fg rounded-br-none">
+              {p.file && (
+                <div className="mb-1">
+                  <MediaMessage
+                    src={p.previewUrl}
+                    kind={mediaKindFrom(undefined, p.file.type)}
+                    filename={p.file.name}
+                    mimeType={p.file.type}
+                    sizeText={formatBytes(p.file.size)}
+                    onOpenImage={(url) => openViewer(url)}
+                  />
+                </div>
+              )}
+              {p.content && <p className="text-sm break-words whitespace-pre-wrap">{p.content}</p>}
+              <div className="flex items-center gap-1.5 mt-1">
+                {myName && <span className="text-[11px] text-muted-fg">Enviado por {myName} ·</span>}
+                <span className="text-[11px] text-muted-fg">{formatMessageTime(p.createdAt)}</span>
+                <StatusIcon status={p.status} />
+              </div>
+              {p.status === 'failed' && (
+                <div className="mt-1 flex items-center gap-2" role="alert">
+                  <span className="text-[11px] text-red-600 dark:text-red-400">No enviado</span>
+                  <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={inFlightRef.current.has(p.localId)} onClick={(e) => { e.currentTarget.disabled = true; retryPending(p); }}>
+                    Reintentar
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
         <div ref={messagesEndRef} />
         </div>
       </ScrollArea>
 
-      <div className="border-t border-[#d1d7db] bg-[#f0f2f5]">
+      <div className="border-t border-line bg-panel">
         {canSendRegularMessage ? (
           <>
             {selectedFile && (
-              <div className="p-3 border-b border-[#d1d7db] bg-white">
+              <div className="p-3 border-b border-line bg-surface">
                 <div className="flex items-start gap-3">
                   {filePreview ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img src={filePreview} alt="Preview" className="w-16 h-16 object-cover rounded" />
                   ) : (
-                    <div className="w-16 h-16 bg-[#f0f2f5] rounded flex items-center justify-center">
-                      <Paperclip className="h-6 w-6 text-[#667781]" />
+                    <div className="w-16 h-16 bg-panel rounded flex items-center justify-center">
+                      <Paperclip className="h-6 w-6 text-muted-fg" />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#111b21] truncate">{selectedFile.name}</p>
-                    <p className="text-xs text-[#667781]">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+                    <p className="text-sm font-medium text-fg truncate">{selectedFile.name}</p>
+                    <p className="text-xs text-muted-fg">{(selectedFile.size / 1024).toFixed(1)} KB</p>
                   </div>
                   <Button
                     onClick={handleRemoveFile}
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="text-[#667781]"
+                    className="text-muted-fg"
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -662,10 +670,9 @@ const handleRotateRight = () => {
               <Button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={sending}
-                variant="ghost"
+                              variant="ghost"
                 size="icon"
-                className="text-[#667781] hover:bg-[#d1d7db]/30"
+                className="text-muted-fg hover:bg-line/30"
                 title="Upload file"
               >
                 <Paperclip className="h-5 w-5" />
@@ -675,10 +682,9 @@ const handleRotateRight = () => {
   onClick={() => {
     setMessageInput('➡️MUNDO RADIOLOGICO⬅️⚠️INFORMA⚠️Hemos Recibido la Documentacion Solicitada, Tener en Cuenta que Esta Linea📲es exclusiva,  para verificación de documentos (Orden Medica - Historia Clínica), por este motivo usted No🚫Estará Recibiendo Respuesta o Información por este medio. Si ya✅fue Radicada su Solicitud a Nuestra Linea Pbx ☎️(608)6345997☎️ estar atento a nuestra llamada☎️en los Horarios⌚de atención✅');
   }}
-  disabled={sending}
   variant="ghost"
   size="icon"
-  className="text-[#667781] hover:bg-[#d1d7db]/30"
+  className="text-muted-fg hover:bg-line/30"
   title="Mensaje Rapido"
 >
   <MessageSquare className="h-5 w-5" />
@@ -686,11 +692,11 @@ const handleRotateRight = () => {
               <Button
                 type="button"
                 onClick={() => setShowInteractiveDialog(true)}
-                disabled={sending}
-                size="icon"
+                              size="icon"
                 variant="ghost"
-                className="text-[#667781] hover:text-[#00a884] hover:bg-[#f0f2f5]"
-                title="Send interactive message"
+                className="text-muted-fg hover:text-brand-text hover:bg-panel"
+                title="Enviar mensaje interactivo"
+                aria-label="Enviar mensaje interactivo"
               >
                 <ListTree className="h-5 w-5" />
               </Button>
@@ -698,15 +704,15 @@ const handleRotateRight = () => {
                 type="text"
                 value={messageInput}
                 onChange={(e) => setMessageInput(e.target.value)}
-                placeholder="Type a message"
-                disabled={sending}
-                className="flex-1 bg-white border-[#d1d7db] focus-visible:ring-[#00a884] rounded-lg"
+                placeholder="Escribe un mensaje"
+                aria-label="Escribe un mensaje"
+                              className="flex-1 bg-surface border-line focus-visible:ring-brand rounded-lg"
               />
-              <Button
+              <Button aria-label="Enviar"
                 type="submit"
-                disabled={sending || (!messageInput.trim() && !selectedFile)}
+                disabled={!messageInput.trim() && !selectedFile}
                 size="icon"
-                className="bg-[#00a884] hover:bg-[#008f6f] rounded-full"
+                className="bg-brand hover:bg-brand-hover rounded-full"
               >
                 <Send className="h-5 w-5" />
               </Button>
@@ -714,20 +720,20 @@ const handleRotateRight = () => {
           </>
         ) : (
           <div className="p-3 max-w-[900px] mx-auto w-full">
-            <div className="bg-[#fff4cc] border border-[#e9c46a] rounded-lg p-4">
+            <div className="bg-warn-bg border border-warn-line rounded-lg p-4">
               <div className="flex items-start gap-3">
-                <AlertCircle className="h-5 w-5 text-[#8b7000] flex-shrink-0 mt-0.5" />
+                <AlertCircle className="h-5 w-5 text-warn-fg flex-shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-[#111b21] mb-3">
+                  <p className="text-sm text-fg mb-3">
                     {getDisabledInputMessage(messages)}
                   </p>
                   <Button
                     onClick={() => setShowTemplateDialog(true)}
-                    className="bg-[#00a884] hover:bg-[#008f6f]"
+                    className="bg-brand hover:bg-brand-hover"
                     size="sm"
                   >
                     <MessageSquare className="h-4 w-4 mr-2" />
-                    Send template
+                    Enviar plantilla
                   </Button>
                 </div>
               </div>
@@ -751,93 +757,12 @@ const handleRotateRight = () => {
         onMessageSent={fetchMessages}
       />
 
-      {/* Image Preview Modal */}
-<Dialog open={!!previewImage} onOpenChange={handlePreviewClose}>
-  <DialogContent className="w-[90vw] h-auto bg-black border-0 p-0 gap-0" style={{ aspectRatio: '4/3', maxHeight: '90vh', maxWidth: '1600px' }}>
-      <DialogTitle className="sr-only">Image Preview</DialogTitle>
-
-    {/* Zoom & Rotate Controls */}
-    <div className="w-full flex justify-center gap-2 p-4 bg-[#1a1a1a] border-b border-[#333] flex-shrink-0">
-      <Button
-        onClick={handleZoomOut}
-        disabled={zoom <= 50}
-        size="sm"
-        variant="outline"
-        className="border-[#555] text-white hover:bg-[#333]"
-      >
-        <ZoomOut className="h-4 w-4" />
-      </Button>
-      <span className="px-4 py-2 text-white text-sm font-medium min-w-[60px] text-center">
-        {zoom}%
-      </span>
-      <Button
-        onClick={handleZoomIn}
-        disabled={zoom >= 300}
-        size="sm"
-        variant="outline"
-        className="border-[#555] text-white hover:bg-[#333]"
-      >
-        <ZoomIn className="h-4 w-4" />
-      </Button>
-      <div className="w-px h-6 bg-[#555] mx-1"></div>
-      <Button
-        onClick={handleRotateLeft}
-        size="sm"
-        variant="outline"
-        className="border-[#555] text-white hover:bg-[#333]"
-        title="Rotate left"
-      >
-        <RotateCcw className="h-4 w-4" />
-      </Button>
-      <Button
-        onClick={handleRotateRight}
-        size="sm"
-        variant="outline"
-        className="border-[#555] text-white hover:bg-[#333]"
-        title="Rotate right"
-      >
-        <RotateCcw className="h-4 w-4 scale-x-[-1]" />
-      </Button>
-      <div className="w-px h-6 bg-[#555] mx-1"></div>
-      <Button
-        onClick={handleResetZoom}
-        size="sm"
-        variant="outline"
-        className="border-[#555] text-white hover:bg-[#333]"
-        title="Reset"
-      >
-        Reset
-      </Button>
-    </div>
-
-    {/* Image Container */}
-    <div
-      ref={previewContainerRef}
-      className={`relative w-full flex-1 flex items-center justify-center overflow-hidden bg-black ${
-        zoom > 100 ? 'cursor-grab active:cursor-grabbing' : ''
-      }`}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-    >
-      {previewImage && (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
-          src={previewImage}
-          alt="Preview"
-          className="object-contain transition-transform duration-75 select-none pointer-events-none"
-          style={{
-            transform: `scale(${zoom / 100}) translate(${pan.x}px, ${pan.y}px) rotate(${rotation}deg)`,
-            maxWidth: '100%',
-            maxHeight: '100%'
-          }}
-          draggable={false}
-        />
-      )}
-    </div>
-  </DialogContent>
-</Dialog>
+      <ImageViewer
+        images={viewerImages}
+        index={viewerIndex}
+        onIndexChange={setViewerIndex}
+        onClose={() => setViewerIndex(null)}
+      />
     </div>
   );
 }

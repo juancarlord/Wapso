@@ -8,14 +8,18 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 
+type Role = 'admin' | 'lead' | 'agent';
+const ROLE_LABELS: Record<Role, string> = { admin: 'Administrador', lead: 'Líder', agent: 'Agente' };
+
 type User = {
-  id: number; username: string; name: string; role: 'admin' | 'agent'; active: number;
-  must_change_password: number; created_at: string; last_login_at: string | null;
+  id: number; username: string; name: string; role: Role; active: number;
+  must_change_password: number; created_at: string; last_login_at?: string | null;
 };
 
 export default function UsersAdminPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [me, setMe] = useState<number | null>(null);
+  const [myRole, setMyRole] = useState<Role | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState({ username: '', name: '', password: '', role: 'agent' });
@@ -24,7 +28,7 @@ export default function UsersAdminPage() {
     const res = await fetch('/api/admin/users');
     if (!res.ok) { setError('No se pudo cargar la lista de usuarios'); return; }
     const data = await res.json();
-    setUsers(data.users); setMe(data.me);
+    setUsers(data.users); setMe(data.me); setMyRole(data.myRole);
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -49,20 +53,29 @@ export default function UsersAdminPage() {
     if (pw) act(u, 'reset_password', { password: pw }, `Contraseña de ${u.username} restablecida`);
   };
 
+  const canWrite = myRole === 'admin' || myRole === 'lead';
+  const canManage = (u: User) => myRole === 'admin' || (myRole === 'lead' && u.role === 'agent');
+  const remove = (u: User) => {
+    if (window.confirm(`¿Eliminar a ${u.name}? Esta acción no se puede deshacer.`)) {
+      call(`/api/admin/users/${u.id}`, 'DELETE', {}, `${u.username} eliminado`);
+    }
+  };
+
   const fmt = (d: string | null) => (d ? new Date(d.replace(' ', 'T') + 'Z').toLocaleString('es-CO') : '—');
 
   return (
-    <div className="min-h-screen bg-[#f0f2f5] p-4 md:p-8">
+    <div className="min-h-screen bg-panel p-4 md:p-8">
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="flex items-center gap-2">
           <Button asChild variant="ghost" size="icon" aria-label="Volver"><Link href="/"><ArrowLeft className="h-4 w-4" /></Link></Button>
-          <h1 className="text-xl font-semibold text-[#111b21]">Usuarios</h1>
+          <h1 className="text-xl font-semibold text-fg">Usuarios</h1>
         </div>
 
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-        {notice && <p className="text-sm text-[#008f72]">{notice}</p>}
+        {notice && <p className="text-sm text-brand-text">{notice}</p>}
 
-        <form onSubmit={create} className="bg-white rounded-lg border border-[#d1d7db] p-4 grid gap-3 md:grid-cols-5 items-end">
+        {canWrite && (
+        <form onSubmit={create} className="bg-surface rounded-lg border border-line p-4 grid gap-3 md:grid-cols-5 items-end">
           <div className="space-y-1"><Label htmlFor="u">Usuario</Label>
             <Input id="u" required value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} /></div>
           <div className="space-y-1"><Label htmlFor="n">Nombre</Label>
@@ -71,36 +84,45 @@ export default function UsersAdminPage() {
             <Input id="p" type="password" autoComplete="new-password" required minLength={10} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
           <div className="space-y-1"><Label htmlFor="r">Rol</Label>
             <select id="r" className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              <option value="agent">Agente</option><option value="admin">Administrador</option>
+              <option value="agent">Agente</option>
+              {myRole === 'admin' && <option value="lead">Líder</option>}
+              {myRole === 'admin' && <option value="admin">Administrador</option>}
             </select></div>
-          <Button type="submit" className="bg-[#00a884] hover:bg-[#008f72] text-white">Crear usuario</Button>
+          <Button type="submit" className="bg-brand hover:bg-brand-hover text-white">Crear usuario</Button>
         </form>
+        )}
 
-        <div className="bg-white rounded-lg border border-[#d1d7db] overflow-x-auto">
+        <div className="bg-surface rounded-lg border border-line overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="text-left text-[#667781] border-b border-[#d1d7db]">
-              <tr><th className="p-3">Usuario</th><th className="p-3">Nombre</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3">Último ingreso</th><th className="p-3">Acciones</th></tr>
+            <thead className="text-left text-muted-fg border-b border-line">
+              <tr><th className="p-3">Usuario</th><th className="p-3">Nombre</th><th className="p-3">Rol</th><th className="p-3">Estado</th>{canWrite && <th className="p-3">Último ingreso</th>}{canWrite && <th className="p-3">Acciones</th>}</tr>
             </thead>
             <tbody>
               {users.map((u) => {
                 const self = u.id === me;
                 return (
-                  <tr key={u.id} className="border-b border-[#f0f2f5] last:border-0">
+                  <tr key={u.id} className="border-b border-panel last:border-0">
                     <td className="p-3 font-medium">{u.username}{self && ' (tú)'}</td>
                     <td className="p-3">{u.name}</td>
-                    <td className="p-3">{u.role === 'admin' ? 'Administrador' : 'Agente'}</td>
+                    <td className="p-3">{ROLE_LABELS[u.role] ?? u.role}</td>
                     <td className="p-3">{u.active ? <Badge variant="secondary">Activo</Badge> : <Badge variant="outline">Inactivo</Badge>}
-                      {u.must_change_password ? <span className="ml-1 text-xs text-[#667781]">debe cambiar contraseña</span> : null}</td>
-                    <td className="p-3 text-[#667781]">{fmt(u.last_login_at)}</td>
+                      {u.must_change_password ? <span className="ml-1 text-xs text-muted-fg">debe cambiar contraseña</span> : null}</td>
+                    {canWrite && <td className="p-3 text-muted-fg">{fmt(u.last_login_at ?? null)}</td>}
+                    {canWrite && (
                     <td className="p-3 flex flex-wrap gap-1">
-                      <Button size="sm" variant="outline" onClick={() => reset(u)}>Restablecer contraseña</Button>
-                      {!self && (u.role === 'agent'
-                        ? <Button size="sm" variant="outline" onClick={() => act(u, 'set_role', { role: 'admin' })}>Hacer admin</Button>
-                        : <Button size="sm" variant="outline" onClick={() => act(u, 'set_role', { role: 'agent' })}>Hacer agente</Button>)}
-                      {!self && (u.active
+                      {!self && canManage(u) && <Button size="sm" variant="outline" onClick={() => reset(u)}>Restablecer contraseña</Button>}
+                      {!self && myRole === 'admin' && (
+                        <select aria-label={`Rol de ${u.username}`} className="h-8 rounded-md border border-input bg-transparent px-2 text-sm" value={u.role}
+                          onChange={(e) => act(u, 'set_role', { role: e.target.value }, `Rol de ${u.username} actualizado`)}>
+                          <option value="agent">Agente</option><option value="lead">Líder</option><option value="admin">Administrador</option>
+                        </select>
+                      )}
+                      {!self && canManage(u) && (u.active
                         ? <Button size="sm" variant="outline" className="text-red-600" onClick={() => window.confirm(`¿Desactivar a ${u.username}?`) && act(u, 'deactivate', {}, `${u.username} desactivado`)}>Desactivar</Button>
                         : <Button size="sm" variant="outline" onClick={() => act(u, 'reactivate', {}, `${u.username} reactivado`)}>Reactivar</Button>)}
+                      {!self && canManage(u) && <Button size="sm" variant="outline" className="text-red-600" onClick={() => remove(u)}>Eliminar</Button>}
                     </td>
+                    )}
                   </tr>
                 );
               })}

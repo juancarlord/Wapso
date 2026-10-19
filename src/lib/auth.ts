@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { SESSION_COOKIE, getAuthSecret, verifySession } from '@/lib/session';
-import { getUserById, type UserRow } from '@/lib/db';
+import { getUserById, type Role, type UserRow } from '@/lib/db';
 
 /** Resolves the session cookie to an active user whose session version still matches. */
 function readCookie(req: Request, name: string): string | undefined {
@@ -46,7 +46,10 @@ export function isSameOrigin(req: Request): boolean {
   }
 }
 
-/** For data routes: active user with no pending password change, else a 401/403 response. */
+
+export const ROLE_LABELS: Record<Role, string> = { admin: 'Administrador', lead: 'Líder', agent: 'Agente' };
+
+/** Any active user (any role) with no pending password change. */
 export async function requireUser(req: Request): Promise<UserRow | NextResponse> {
   const u = await getSessionUser(req);
   if (!u) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -54,10 +57,24 @@ export async function requireUser(req: Request): Promise<UserRow | NextResponse>
   return u;
 }
 
-export async function requireAdmin(req: Request): Promise<UserRow | NextResponse> {
-  const u = await getSessionUser(req);
-  if (!u) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (u.must_change_password) return NextResponse.json({ error: 'Password change required' }, { status: 403 });
-  if (u.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+/** Admin or lead: may perform user-management writes (further limited by canManage). */
+export async function requireManager(req: Request): Promise<UserRow | NextResponse> {
+  const u = await requireUser(req);
+  if (u instanceof NextResponse) return u;
+  if (u.role !== 'admin' && u.role !== 'lead') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   return u;
+}
+
+/** Admin manages everyone; a lead manages agents only; agents manage nobody. */
+export function canManage(actor: UserRow, target: { role: Role }): boolean {
+  if (actor.role === 'admin') return true;
+  if (actor.role === 'lead') return target.role === 'agent';
+  return false;
+}
+
+/** Only admins may assign admin or lead; leads may assign agent only. */
+export function canAssignRole(actor: UserRow, role: Role): boolean {
+  if (actor.role === 'admin') return true;
+  if (actor.role === 'lead') return role === 'agent';
+  return false;
 }

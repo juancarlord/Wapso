@@ -50,10 +50,10 @@ export async function middleware(req: NextRequest) {
       : NextResponse.redirect(new URL('/cambiar-contrasena', req.url));
   }
 
-  if ((pathname === '/admin' || pathname.startsWith('/admin/') || pathname.startsWith('/api/admin/')) && user.role !== 'admin') {
-    return isApi
-      ? NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-      : new NextResponse('403 - Solo administradores', { status: 403 });
+  // Every role may view /admin/usuarios (agents read-only). Writes under /api/admin need admin or lead;
+  // the route handlers enforce the per-target rules.
+  if (pathname.startsWith('/api/admin/') && !['GET', 'HEAD'].includes(method) && user.role !== 'admin' && user.role !== 'lead') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   return NextResponse.next();

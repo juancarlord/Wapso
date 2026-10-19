@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, forwardRef, useImperativeHandle, useCallback } from 'react';
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { format, isValid, isToday, isYesterday } from 'date-fns';
 import { RefreshCw, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { LogoutButton } from '@/components/logout-button';
+import { ThemeToggle } from '@/components/theme-toggle';
+import { NotificationsToggle, playPing } from '@/components/notifications-toggle';
 
 type Conversation = {
   id: string;
@@ -23,6 +25,8 @@ type Conversation = {
   metadata?: Record<string, unknown>;
   contactName?: string;
   messagesCount?: number;
+  lastInboundAt?: string;
+  unread?: boolean;
   lastMessage?: {
     content: string;
     direction: string;
@@ -36,11 +40,23 @@ function formatConversationDate(timestamp: string): string {
     if (!isValid(date)) return '';
 
     if (isToday(date)) return format(date, 'HH:mm');
-    if (isYesterday(date)) return 'Yesterday';
+    if (isYesterday(date)) return 'Ayer';
     return format(date, 'MMM d');
   } catch {
     return '';
   }
+}
+
+/** In-memory only (never leaves the page): stable per-contact key; merged conversation ids change when Kapso opens a new conversation for the same contact. */
+function conversationKey(c: { id: string; phoneNumber?: string; contactName?: string }): string {
+  return c.phoneNumber || c.contactName || c.id;
+}
+
+/** Latest inbound time: Kapso's last_inbound_at, or lastActiveAt when the last message is inbound. */
+function latestInboundTime(c: { lastInboundAt?: string; lastActiveAt?: string; lastMessage?: { direction: string } }): number {
+  const a = c.lastInboundAt ? Date.parse(c.lastInboundAt) : NaN;
+  const b = c.lastMessage?.direction === 'inbound' && c.lastActiveAt ? Date.parse(c.lastActiveAt) : NaN;
+  return Math.max(Number.isFinite(a) ? a : 0, Number.isFinite(b) ? b : 0);
 }
 
 function getAvatarInitials(contactName?: string, phoneNumber?: string): string {
@@ -81,6 +97,66 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   
+  // Per-contact latest inbound time seen on the previous poll (null until seeded by the first load).
+  const lastInboundRef = useRef<Map<string, number> | null>(null);
+  const lastPingRef = useRef(0);
+  const selectedRef = useRef(selectedConversationId);
+  selectedRef.current = selectedConversationId;
+  const onSelectRef = useRef(onSelectConversation);
+  onSelectRef.current = onSelectConversation;
+
+  const markRead = useCallback((id: string) => {
+    setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, unread: false } : c)));
+    fetch('/api/conversations/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversationId: id }),
+    }).catch(() => {});
+  }, []);
+
+  // Detect new inbound messages between polls, per conversation: notify, or mark read if it's open and visible.
+  const handleNewInbound = useCallback((incoming: Conversation[]) => {
+    const prev = lastInboundRef.current;
+    const next = new Map<string, number>();
+    for (const c of incoming) {
+      const t = latestInboundTime(c);
+      if (t > 0) next.set(conversationKey(c), t);
+    }
+    // Keep marks for contacts not on this page so they don't re-fire later.
+    if (prev) for (const [k, v] of prev) if (!next.has(k)) next.set(k, v);
+    lastInboundRef.current = next;
+    if (!prev) return; // first load seeds the baseline: nothing fires for old messages
+
+    const selectedKeyIds = selectedRef.current ? selectedRef.current.split(',') : [];
+    let fired = false;
+    for (const c of incoming) {
+      const key = conversationKey(c);
+      const t = next.get(key);
+      if (t === undefined || t <= (prev.get(key) ?? 0)) continue;
+      const isOpen = c.id.split(',').some((id) => selectedKeyIds.includes(id));
+      if (isOpen && !document.hidden) {
+        markRead(c.id);
+        continue;
+      }
+      fired = true;
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        // Privacy: contact name only (never phone number or message body). One notification per conversation (tag = conversation id, never the phone).
+        const n = new Notification(c.contactName?.trim() || 'WhatsApp', { body: 'Nuevo mensaje', tag: `conv-${c.id.split(',')[0]}` });
+        n.onclick = () => {
+          window.focus();
+          markRead(c.id);
+          onSelectRef.current(c);
+          n.close();
+        };
+      }
+    }
+    // Beep at most once every 5 s.
+    if (fired && Date.now() - lastPingRef.current >= 5000) {
+      lastPingRef.current = Date.now();
+      playPing();
+    }
+  }, [markRead]);
+
   const fetchConversations = useCallback(async (after?: string) => {
     try {
       // only show initial "loading" on first load; avoid toggling UI for background polls
@@ -127,6 +203,7 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
         });
       }
 
+      if (!after && Array.isArray(json.data)) handleNewInbound(json.data as Conversation[]);
       setNextCursor(json.paging?.after ?? json.paging?.next ?? null);
     } catch (err) {
       console.error('[FE] fetchConversations error', err);
@@ -136,7 +213,7 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
       setRefreshing(false);
       setLoadingMore(false);
     }
-  }, [hasLoaded]);
+  }, [hasLoaded, handleNewInbound]);
 
   useEffect(() => {
     fetchConversations();
@@ -148,10 +225,18 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
     fetchConversations().finally(() => setRefreshing(false));
   };
 
-  // Auto-polling for conversations (every 10 seconds)
+  // Poll every 10 s when visible, every 30 s when the tab is hidden.
+  const [tabHidden, setTabHidden] = useState(false);
+  useEffect(() => {
+    const onVis = () => setTabHidden(document.hidden);
+    onVis();
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
   const { isPolling } = useAutoPolling({
-    interval: 10000,
+    interval: tabHidden ? 30000 : 10000,
     enabled: true,
+    pauseWhenHidden: false, // keep polling in background tabs so notifications work
     onPoll: fetchConversations
   });
 
@@ -172,6 +257,17 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
     selectByPhoneNumber
   }));
 
+  // Tab title with this user's unread count.
+  const unreadCount = conversations.filter((c) => c.unread).length;
+  useEffect(() => {
+    document.title = unreadCount > 0 ? `(${unreadCount}) Bandeja` : 'Bandeja';
+  }, [unreadCount]);
+
+  const openConversation = (c: Conversation) => {
+    if (c.unread) markRead(c.id);
+    onSelectConversation(c);
+  };
+
   const filteredConversations = conversations.filter((conv) => {
     const query = searchQuery.toLowerCase();
     return (
@@ -183,10 +279,10 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
   if (loading) {
     return (
       <div className={cn(
-        "w-full md:w-96 border-r border-[#d1d7db] bg-white flex flex-col",
+        "w-full md:w-96 border-r border-line bg-surface flex flex-col",
         isHidden && "hidden md:flex"
       )}>
-        <div className="p-4 border-b border-[#d1d7db] bg-[#f0f2f5]">
+        <div className="p-4 border-b border-line bg-panel">
           <div className="flex items-center justify-between mb-3">
             <Skeleton className="h-7 w-20" />
             <Skeleton className="h-9 w-24" />
@@ -210,17 +306,18 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
 
   return (
     <div className={cn(
-      "w-full md:w-96 border-r border-[#d1d7db] bg-white flex flex-col",
+      "w-full md:w-96 border-r border-line bg-surface flex flex-col",
       isHidden && "hidden md:flex"
     )}>
-      <div className="p-4 border-b border-[#d1d7db] bg-[#f0f2f5]">
+      <div className="p-4 border-b border-line bg-panel">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold text-[#111b21]">Chats</h1>
+            <h1 className="text-xl font-semibold text-fg">Chats</h1>
             {isPolling && (
               <div
                 className="h-2 w-2 rounded-full bg-green-500 animate-pulse"
-                title="Auto-updating"
+                title="Actualización automática"
+                aria-hidden="true"
               />
             )}
           </div>
@@ -230,72 +327,86 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
               disabled={refreshing}
               variant="ghost"
               size="icon"
-              className="text-[#667781] hover:bg-[#d1d7db]/30"
+              className="text-muted-fg hover:bg-line/30"
+              title="Actualizar"
+              aria-label="Actualizar conversaciones"
             >
               <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
             </Button>
+            <NotificationsToggle />
+            <ThemeToggle />
             <LogoutButton />
           </div>
         </div>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#667781]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-fg" />
           <Input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search or start new chat"
-            className="pl-9 bg-white border-[#d1d7db] focus-visible:ring-[#00a884] rounded-lg"
+            placeholder="Buscar chat"
+            aria-label="Buscar chat"
+            className="pl-9 bg-surface border-line focus-visible:ring-brand rounded-lg"
           />
         </div>
       </div>
 
       <ScrollArea className="flex-1 h-0 overflow-hidden">
         {filteredConversations.length === 0 ? (
-          <div className="p-4 text-center text-[#667781]">
-            {searchQuery ? 'No conversations found' : 'No conversations yet'}
+          <div className="p-4 text-center text-muted-fg">
+            {searchQuery ? 'No se encontraron conversaciones' : 'Aún no hay conversaciones'}
           </div>
         ) : (
           <div className="w-full overflow-hidden">
           {filteredConversations.map((conversation) => (
             <button
               key={conversation.id}
-              onClick={() => onSelectConversation(conversation)}
+              onClick={() => openConversation(conversation)}
+              aria-current={selectedConversationId === conversation.id ? 'true' : undefined}
               className={cn(
-                'w-full p-3 pr-4 border-b border-[#e9edef] hover:bg-[#f0f2f5] text-left transition-colors relative overflow-hidden',
-                selectedConversationId === conversation.id && 'bg-[#f0f2f5]'
+                'w-full p-3 pr-4 border-b border-line-soft hover:bg-panel text-left transition-colors relative overflow-hidden',
+                selectedConversationId === conversation.id && 'bg-panel'
               )}
             >
               <div className="flex gap-3 items-start overflow-hidden">
                 <Avatar className="h-12 w-12 flex-shrink-0">
-                  <AvatarFallback className="bg-[#d1d7db] text-[#111b21] text-sm font-medium">
+                  <AvatarFallback className="bg-line text-fg text-sm font-medium">
                     {getAvatarInitials(conversation.contactName, conversation.phoneNumber)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0 flex justify-between items-start gap-4 overflow-hidden">
                   <div className="flex-1 min-w-0 overflow-hidden">
-                    <p className="font-medium text-[#111b21] truncate">
-                      {conversation.contactName || (conversation.username ? `@${conversation.username}` : conversation.phoneNumber)}
+                    <p className={cn('text-fg truncate flex items-center gap-2', conversation.unread ? 'font-bold' : 'font-medium')}>
+                      <span className="truncate">
+                        {conversation.contactName || (conversation.username ? `@${conversation.username}` : conversation.phoneNumber)}
+                      </span>
+                      {conversation.unread && (
+                        <>
+                          <span className="h-2.5 w-2.5 rounded-full bg-brand-text flex-shrink-0" aria-hidden="true" />
+                          <span className="sr-only">sin leer</span>
+                        </>
+                      )}
                     </p>
                     {conversation.contactName && conversation.username && (
-                      <p className="text-sm text-[#667781] truncate mt-0.5">
+                      <p className="text-sm text-muted-fg truncate mt-0.5">
                         @{conversation.username}
                       </p>
                     )}
                     {conversation.contactName && !conversation.username && conversation.phoneNumber && (
-                      <p className="text-sm text-[#667781] truncate mt-0.5">
+                      <p className="text-sm text-muted-fg truncate mt-0.5">
                         {conversation.phoneNumber}
                       </p>
                     )}
                     {conversation.lastMessage && (
-                      <p className="text-sm text-[#667781] truncate mt-0.5">
+                      <p className="text-sm text-muted-fg truncate mt-0.5">
                         {conversation.lastMessage.direction === 'outbound' && (
-                          <span className="text-[#53bdeb]">✓ </span>
+                          <span className="text-tick">✓ </span>
                         )}
                         {conversation.lastMessage.content}
                       </p>
                     )}
                   </div>
-                  <span className="text-xs text-[#667781] flex-shrink-0 mt-0.5 ml-4">
+                  <span className="text-xs text-muted-fg flex-shrink-0 mt-0.5 ml-4">
                     {formatConversationDate(conversation.lastActiveAt)}
                   </span>
                 </div>
@@ -313,8 +424,8 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
                 {loadingMore ? 'Cargando...' : 'Cargar más'}
               </Button>
             ) : (
-              <Button disabled variant="ghost" className="text-sm text-[#667781]" aria-disabled>
-                No more conversations
+              <Button disabled variant="ghost" className="text-sm text-muted-fg" aria-disabled>
+                No hay más conversaciones
               </Button>
             )}
           </div>

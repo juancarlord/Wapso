@@ -33,10 +33,10 @@ export default function ChangePasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5] p-4">
-      <form onSubmit={onSubmit} className="w-full max-w-sm bg-white rounded-lg shadow-sm border border-[#d1d7db] p-6 space-y-4">
-        <h1 className="text-xl font-semibold text-[#111b21] text-center">Cambiar contraseña</h1>
-        <p className="text-sm text-[#667781] text-center">Elige una contraseña nueva de al menos 10 caracteres.</p>
+    <div className="min-h-screen flex items-center justify-center bg-panel p-4">
+      <form onSubmit={onSubmit} className="w-full max-w-sm bg-surface rounded-lg shadow-sm border border-line p-6 space-y-4">
+        <h1 className="text-xl font-semibold text-fg text-center">Cambiar contraseña</h1>
+        <p className="text-sm text-muted-fg text-center">Elige una contraseña nueva de al menos 10 caracteres.</p>
         <div className="space-y-2">
           <Label htmlFor="current">Contraseña actual</Label>
           <Input id="current" type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
@@ -50,7 +50,7 @@ export default function ChangePasswordPage() {
           <Input id="confirm" type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
         </div>
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" disabled={loading} className="w-full bg-[#00a884] hover:bg-[#008f72] text-white">
+        <Button type="submit" disabled={loading} className="w-full bg-brand hover:bg-brand-hover text-white">
           {loading ? 'Guardando…' : 'Guardar'}
         </Button>
       </form>

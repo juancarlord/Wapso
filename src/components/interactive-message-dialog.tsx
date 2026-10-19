@@ -148,7 +148,7 @@ export function InteractiveMessageDialog({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="header" className="text-[#111b21]">
+            <Label htmlFor="header" className="text-fg">
               Header (optional)
             </Label>
             <Input
@@ -156,12 +156,12 @@ export function InteractiveMessageDialog({
               value={header}
               onChange={(e) => setHeader(e.target.value)}
               placeholder="Add a header to your message"
-              className="bg-white border-[#d1d7db] focus-visible:ring-[#00a884]"
+              className="bg-surface border-line focus-visible:ring-brand"
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="body" className="text-[#111b21]">
+            <Label htmlFor="body" className="text-fg">
               Body <span className="text-red-500">*</span>
             </Label>
             <Textarea
@@ -169,13 +169,13 @@ export function InteractiveMessageDialog({
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="Enter your message text"
-              className="bg-white border-[#d1d7db] focus-visible:ring-[#00a884] min-h-[100px]"
+              className="bg-surface border-line focus-visible:ring-brand min-h-[100px]"
             />
           </div>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-[#111b21]">
+              <Label className="text-fg">
                 Buttons <span className="text-red-500">*</span>
               </Label>
               <Button
@@ -184,7 +184,7 @@ export function InteractiveMessageDialog({
                 size="sm"
                 onClick={handleAddButton}
                 disabled={buttons.length >= 3}
-                className="h-8 text-[#00a884] hover:text-[#008f6f] hover:bg-[#f0f2f5]"
+                className="h-8 text-brand-text hover:text-brand-text hover:bg-panel"
               >
                 <Plus className="h-4 w-4 mr-1" />
                 Add button
@@ -198,10 +198,10 @@ export function InteractiveMessageDialog({
                     value={button.title}
                     onChange={(e) => handleButtonTitleChange(index, e.target.value)}
                     placeholder={`Button ${index + 1} title`}
-                    className="bg-white border-[#d1d7db] focus-visible:ring-[#00a884]"
+                    className="bg-surface border-line focus-visible:ring-brand"
                     maxLength={20}
                   />
-                  <span className="text-xs text-[#667781] min-w-[3rem]">
+                  <span className="text-xs text-muted-fg min-w-[3rem]">
                     {button.title.length}/20
                   </span>
                   {buttons.length > 1 && (
@@ -210,7 +210,7 @@ export function InteractiveMessageDialog({
                       variant="ghost"
                       size="icon"
                       onClick={() => handleRemoveButton(index)}
-                      className="h-9 w-9 text-[#667781] hover:text-red-600 hover:bg-red-50"
+                      className="h-9 w-9 text-muted-fg hover:text-red-600 hover:bg-red-50"
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -220,7 +220,7 @@ export function InteractiveMessageDialog({
             </div>
 
             {buttons.length < 3 && (
-              <p className="text-xs text-[#667781]">
+              <p className="text-xs text-muted-fg">
                 You can add up to {3 - buttons.length} more button{3 - buttons.length !== 1 ? 's' : ''}
               </p>
             )}
@@ -236,7 +236,7 @@ export function InteractiveMessageDialog({
           <Button
             onClick={handleSend}
             disabled={!isValid() || sending}
-            className="bg-[#00a884] hover:bg-[#008f6f]"
+            className="bg-brand hover:bg-brand-hover"
           >
             {sending ? (
               <Loader2 className="h-4 w-4 animate-spin" />

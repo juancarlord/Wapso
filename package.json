@@ -6,7 +6,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "hash-password": "node scripts/hash-password.mjs"
+    "hash-password": "node scripts/hash-password.mjs",
+    "test:media-text": "node --experimental-strip-types --no-warnings scripts/test-media-text.mts"
   },
   "dependencies": {
     "@kapso/whatsapp-cloud-api": "^0.1.0",

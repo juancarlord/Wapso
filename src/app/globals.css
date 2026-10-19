@@ -4,6 +4,24 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-text: var(--brand-text);
+  --color-surface: var(--surface);
+  --color-panel: var(--panel);
+  --color-chat-bg: var(--chat-bg);
+  --color-bubble-out: var(--bubble-out);
+  --color-fg: var(--fg);
+  --color-muted-fg: var(--muted-fg);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-tick: var(--tick);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-line: var(--warn-line);
+  --color-warn-fg: var(--warn-fg);
+  --color-media-bar: var(--media-bar);
+  --color-media-line: var(--media-line);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
@@ -44,75 +62,76 @@
 }
 
 :root {
+  /* Mundo Radiológico brand (from ~/Dev/PACS/ohif/brand/custom.css + portal palette) */
   --radius: 0.5rem;
-  --background: #f0f2f5;
-  --foreground: #111b21;
-  --card: #ffffff;
-  --card-foreground: #111b21;
-  --popover: #ffffff;
-  --popover-foreground: #111b21;
-  --primary: #00a884;
+  --brand: #0063bc;          /* --mundo-blue */
+  --brand-hover: #00509a;    /* --mundo-blue-hover */
+  --brand-strong: #00359e;   /* --mundo-navy */
+  --brand-text: #0063bc;     /* brand used as text/icon (5.9:1 on white) */
+  --surface: #ffffff;
+  --panel: #f1f5f9;          /* portal slate-100 */
+  --chat-bg: #eef4ff;        /* portal light blue */
+  --bubble-out: #e0f2fe;     /* portal sky-100 */
+  --fg: #0f172a;
+  --muted-fg: #475569;       /* portal slate-600: 7.0:1 on panel */
+  --line: #cbd5e1;
+  --line-soft: #e2e8f0;
+  --tick: #0063bc;
+  --warn-bg: #fef3c7;
+  --warn-line: #fde68a;
+  --warn-fg: #92400e;
+  --media-bar: #1a1a1a;
+  --media-line: #333333;
+
+  --background: var(--panel);
+  --foreground: var(--fg);
+  --card: var(--surface);
+  --card-foreground: var(--fg);
+  --popover: var(--surface);
+  --popover-foreground: var(--fg);
+  --primary: var(--brand);
   --primary-foreground: #ffffff;
-  --secondary: #f0f2f5;
-  --secondary-foreground: #111b21;
-  --muted: #f0f2f5;
-  --muted-foreground: #667781;
-  --accent: #f0f2f5;
-  --accent-foreground: #111b21;
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: #e9edef;
-  --input: #e9edef;
-  --ring: #00a884;
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: #ffffff;
-  --sidebar-foreground: #111b21;
-  --sidebar-primary: #00a884;
+  --secondary: var(--panel);
+  --secondary-foreground: var(--fg);
+  --muted: var(--panel);
+  --muted-foreground: var(--muted-fg);
+  --accent: var(--panel);
+  --accent-foreground: var(--fg);
+  --destructive: #dc2626;
+  --border: var(--line-soft);
+  --input: var(--line);
+  --ring: var(--brand);
+  --sidebar: var(--surface);
+  --sidebar-foreground: var(--fg);
+  --sidebar-primary: var(--brand);
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f0f2f5;
-  --sidebar-accent-foreground: #111b21;
-  --sidebar-border: #e9edef;
-  --sidebar-ring: #00a884;
-  --whatsapp-green: #00a884;
-  --whatsapp-bubble-incoming: #ffffff;
-  --whatsapp-bubble-outgoing: #d9fdd3;
+  --sidebar-accent: var(--panel);
+  --sidebar-accent-foreground: var(--fg);
+  --sidebar-border: var(--line-soft);
+  --sidebar-ring: var(--brand);
+  color-scheme: light;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Navy surfaces from the OHIF brand (--mundo-navy-darker / --ui-gray-*) */
+  --brand: #0063bc;          /* white text on it: 5.9:1 */
+  --brand-hover: #00509a;
+  --brand-strong: #00359e;
+  --brand-text: #7cb4f0;     /* light blue for text on navy: ~8:1 */
+  --surface: #00143d;        /* --mundo-navy-darker */
+  --panel: #000f2e;          /* --ui-gray-darker */
+  --chat-bg: #000a20;        /* --ui-gray-darkest */
+  --bubble-out: #002777;     /* --mundo-navy-dark */
+  --fg: #f8fafc;             /* --text-primary-color */
+  --muted-fg: #94a3b8;       /* --default-color: ~7:1 on panel */
+  --line: #1e293b;           /* --ui-border-color */
+  --line-soft: #0f172a;      /* --ui-border-color-dark */
+  --tick: #7cb4f0;
+  --warn-bg: #3a2e05;
+  --warn-line: #92400e;
+  --warn-fg: #fde68a;
+  --destructive: #f87171;
+  color-scheme: dark;
 }
 
 @layer base {
@@ -122,6 +141,10 @@
   body {
     @apply bg-background text-foreground;
   }
+  :focus-visible {
+    outline: 2px solid var(--brand-text);
+    outline-offset: 2px;
+  }
 }
 
 /* Fix ScrollArea table layout breaking text truncation */
@@ -129,4 +152,14 @@
   display: block !important;
   width: 100% !important;
   min-width: 0 !important;
+}
+
+/* Optimistic outgoing bubble entrance */
+@keyframes bubble-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-bubble-in { animation: bubble-in 180ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-bubble-in { animation: none; }
 }

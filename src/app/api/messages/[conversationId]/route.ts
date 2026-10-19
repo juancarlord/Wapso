@@ -1,4 +1,7 @@
 import { requireUser } from '@/lib/auth';
+import { getSenderNames } from '@/lib/db';
+import { parseMediaAutoText, cleanMediaText, formatBytes } from '@/lib/media-text';
+import { sealMediaUrl } from '@/lib/media-token';
 import { NextResponse } from 'next/server';
 import {
   buildKapsoFields,
@@ -148,16 +151,24 @@ export async function GET(
           Boolean(mediaId) ||
           ['image', 'video', 'audio', 'document', 'sticker'].includes(msg.type);
 
-        const resolvedMediaData = mediaUrl
+        const kapsoContent = normaliseKapsoContent(kapsoExtensions?.content);
+        // Kapso's auto text ("Image attached (x.jpg) [Size: .. | Type: ..] URL: ..."): use its metadata, never its URL.
+        const auto = parseMediaAutoText(kapsoContent ?? (typeof text?.body === 'string' ? text.body : undefined));
+
+        // Media is always served through our authenticated, no-store proxy; raw storage URLs never reach the browser.
+        const sealed = !mediaId && mediaUrl ? sealMediaUrl(mediaUrl) : null;
+        const proxySrc = mediaId ? `/api/media/${encodeURIComponent(mediaId)}` : sealed ? `/api/media/u/${sealed}` : undefined;
+        const resolvedFilename = document?.filename ?? messageTypeData?.filename ?? kapsoMediaData.filename ?? auto?.filename;
+        const resolvedMime = messageTypeData?.mimeType ?? kapsoMediaData.contentType ?? auto?.mimeType;
+        const resolvedMediaData = proxySrc
           ? {
-              url: mediaUrl,
-              filename: document?.filename ?? messageTypeData?.filename ?? kapsoMediaData.filename,
-              contentType: messageTypeData?.mimeType ?? kapsoMediaData.contentType,
-              byteSize: kapsoMediaData.byteSize
+              url: proxySrc,
+              filename: resolvedFilename,
+              contentType: resolvedMime,
+              byteSize: kapsoMediaData.byteSize,
+              sizeText: formatBytes(kapsoMediaData.byteSize) ?? auto?.sizeText
             }
           : undefined;
-
-        const kapsoContent = normaliseKapsoContent(kapsoExtensions?.content);
         const textBody = typeof text?.body === 'string' ? text.body : undefined;
         const reactionEmoji = typeof reaction?.emoji === 'string' ? reaction.emoji : undefined;
 
@@ -172,20 +183,20 @@ export async function GET(
         return {
           id: msg.id,
           direction: typeof kapsoExtensions?.direction === 'string' ? kapsoExtensions.direction : 'inbound',
-          content: kapsoContent ?? textBody ?? reactionEmoji ?? fallbackCaption ?? '',
+          content: cleanMediaText(kapsoContent ?? textBody ?? reactionEmoji ?? fallbackCaption ?? ''),
           createdAt: toIsoString(msg.timestamp, lastMessageTimestamp),
           status: typeof kapsoExtensions?.status === 'string' ? kapsoExtensions.status : undefined,
           phoneNumber: typeof kapsoExtensions?.phoneNumber === 'string' ? kapsoExtensions.phoneNumber : msg.from,
-          hasMedia,
+          hasMedia: hasMedia || Boolean(auto && proxySrc),
           mediaData: resolvedMediaData,
           reactionEmoji,
           reactedToMessageId: typeof reaction?.messageId === 'string'
             ? reaction.messageId
             : messageTypeData?.messageId,
-          filename: document?.filename ?? messageTypeData?.filename ?? kapsoMediaData.filename,
-          mimeType: messageTypeData?.mimeType ?? kapsoMediaData.contentType,
-          messageType: msg.type,
-          caption: fallbackCaption,
+          filename: resolvedFilename,
+          mimeType: resolvedMime,
+          messageType: ['image', 'video', 'audio', 'document', 'sticker'].includes(msg.type) ? msg.type : auto?.kind ?? msg.type,
+          caption: fallbackCaption ? cleanMediaText(fallbackCaption) : undefined,
           metadata: {
             mediaId
           }
@@ -198,6 +209,16 @@ export async function GET(
 
     // Sort all messages by createdAt ascending
     allTransformedData.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    const senderNames = getSenderNames(
+      allTransformedData.filter((m) => m.direction === 'outbound').map((m) => m.id)
+    );
+    for (const m of allTransformedData) {
+      if (m.direction === 'outbound') {
+        const name = senderNames.get(m.id);
+        if (name) m.senderName = name;
+      }
+    }
 
     return NextResponse.json({
       data: allTransformedData,

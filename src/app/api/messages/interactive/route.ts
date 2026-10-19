@@ -1,3 +1,4 @@
+import { extractSentMessageId, recordMessageSender } from '@/lib/db';
 import { requireUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { whatsappClient, PHONE_NUMBER_ID } from '@/lib/whatsapp-client';
@@ -52,6 +53,11 @@ export async function POST(request: Request) {
 
     // Send interactive button message
     const result = await whatsappClient.messages.sendInteractiveButtons(payload);
+
+    const sentId = extractSentMessageId(result);
+    if (sentId) {
+      try { recordMessageSender(sentId, authUser); } catch (e) { console.error('[senders] record failed', e); }
+    }
 
     return NextResponse.json(result);
   } catch (error) {

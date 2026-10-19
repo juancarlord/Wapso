@@ -36,9 +36,9 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#f0f2f5] p-4">
-      <form onSubmit={onSubmit} className="w-full max-w-sm bg-white rounded-lg shadow-sm border border-[#d1d7db] p-6 space-y-4">
-        <h1 className="text-xl font-semibold text-[#111b21] text-center">Iniciar sesión</h1>
+    <div className="min-h-screen flex items-center justify-center bg-panel p-4">
+      <form onSubmit={onSubmit} className="w-full max-w-sm bg-surface rounded-lg shadow-sm border border-line p-6 space-y-4">
+        <h1 className="text-xl font-semibold text-fg text-center">Iniciar sesión</h1>
         <div className="space-y-2">
           <Label htmlFor="username">Usuario</Label>
           <Input id="username" autoComplete="username" autoFocus required value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -48,7 +48,7 @@ export default function LoginPage() {
           <Input id="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" disabled={loading} className="w-full bg-[#00a884] hover:bg-[#008f72] text-white">
+        <Button type="submit" disabled={loading} className="w-full bg-brand hover:bg-brand-hover text-white">
           {loading ? 'Ingresando…' : 'Ingresar'}
         </Button>
       </form>
