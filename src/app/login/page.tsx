@@ -36,7 +36,14 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-panel p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-panel p-4">
+      <div className="flex flex-col items-center gap-2">
+        <div className="rounded-2xl p-2 dark:bg-white dark:shadow-sm">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Mundo Radiológico" width={140} height={139} className="w-[140px] h-auto" />
+        </div>
+        <p className="text-sm font-semibold tracking-wide text-brand-strong dark:text-brand-text">Contact Center Mundo Radiológico</p>
+      </div>
       <form onSubmit={onSubmit} className="w-full max-w-sm bg-surface rounded-lg shadow-sm border border-line p-6 space-y-4">
         <h1 className="text-xl font-semibold text-fg text-center">Iniciar sesión</h1>
         <div className="space-y-2">

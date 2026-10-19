@@ -400,10 +400,11 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
   if (!conversationId) {
     return (
       <div className={cn(
-        "flex-1 flex items-center justify-center bg-muted/50",
+        "relative flex-1 flex items-center justify-center bg-chat-bg",
         !isVisible && "hidden md:flex"
       )}>
-        <p className="text-muted-foreground">Select a conversation to view messages</p>
+        <div className="chat-watermark" aria-hidden="true" />
+        <p className="relative text-muted-fg">Selecciona una conversación para ver los mensajes</p>
       </div>
     );
   }
@@ -494,7 +495,9 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
         </div>
       </div>
 
-      <ScrollArea ref={messagesContainerRef} className="flex-1 h-0 p-4">
+      <div className="relative flex-1 h-0 flex flex-col">
+      <div className="chat-watermark" aria-hidden="true" />
+      <ScrollArea ref={messagesContainerRef} className="relative flex-1 h-0 p-4">
         <div className="max-w-[900px] mx-auto">
         {messages.length === 0 ? (
           <p className="text-center text-muted-foreground">No messages yet</p>
@@ -627,6 +630,7 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
         <div ref={messagesEndRef} />
         </div>
       </ScrollArea>
+      </div>
 
       <div className="border-t border-line bg-panel">
         {canSendRegularMessage ? (

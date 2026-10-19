@@ -61,6 +61,6 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   runtime: 'nodejs',
-  // Only Next build assets, the favicon and the exact public/ files are excluded.
-  matcher: ['/((?!_next/static/|_next/image|favicon\\.ico$|file\\.svg$|globe\\.svg$|next\\.svg$|vercel\\.svg$|window\\.svg$).*)'],
+  // Only Next build assets and these exact public/ files (logo + app icons) skip auth; no extension bypass.
+  matcher: ['/((?!_next/static/|_next/image|logo\\.png$|icon-32\\.png$|icon-512\\.png$|apple-icon\\.png$|file\\.svg$|globe\\.svg$|next\\.svg$|vercel\\.svg$|window\\.svg$).*)'],
 };
