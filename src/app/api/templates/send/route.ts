@@ -1,3 +1,4 @@
+import { requireUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { buildTemplateSendPayload } from '@kapso/whatsapp-cloud-api';
 import { whatsappClient, PHONE_NUMBER_ID } from '@/lib/whatsapp-client';
@@ -11,6 +12,9 @@ type TemplateHeaderParameter = Extract<NonNullable<TemplateSendInput['header']>,
 type TemplateButtonParameter = Extract<NonNullable<TemplateSendInput['buttons']>[number], { subType: 'url' }>;
 
 export async function POST(request: Request) {
+  const authUser = await requireUser(request);
+  if (authUser instanceof NextResponse) return authUser;
+
   try {
     const body = await request.json();
     const { to, templateName, languageCode, parameters, parameterInfo } = body;

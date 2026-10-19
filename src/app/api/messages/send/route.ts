@@ -1,7 +1,11 @@
+import { requireUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { whatsappClient, PHONE_NUMBER_ID } from '@/lib/whatsapp-client';
 
 export async function POST(request: Request) {
+  const authUser = await requireUser(request);
+  if (authUser instanceof NextResponse) return authUser;
+
   try {
     const formData = await request.formData();
     const to = formData.get('to') as string;

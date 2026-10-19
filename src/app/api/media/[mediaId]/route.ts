@@ -1,3 +1,4 @@
+import { requireUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { whatsappClient, PHONE_NUMBER_ID } from '@/lib/whatsapp-client';
 
@@ -5,6 +6,9 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ mediaId: string }> }
 ) {
+  const authUser = await requireUser(request);
+  if (authUser instanceof NextResponse) return authUser;
+
   const { mediaId } = await params;
   try {
     // Get metadata for mime type
@@ -27,7 +31,7 @@ export async function GET(
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': metadata.mimeType || 'application/octet-stream',
-        'Cache-Control': 'public, max-age=86400'
+        'Cache-Control': 'private, no-store'
       }
     });
   } catch (error) {
@@ -37,7 +41,7 @@ export async function GET(
         details: error instanceof Error ? error.message : 'Unknown error',
         mediaId
       },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'private, no-store' } }
     );
   }
 }
