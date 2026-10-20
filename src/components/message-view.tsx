@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { ImageViewer, isViewerSafeSrc, type ViewerImage } from '@/components/image-viewer';
 import type { MediaData } from '@kapso/whatsapp-cloud-api';
+import { AssignmentBar, type ChatAssignment, type Me } from '@/components/assignment-bar';
 
 type PendingMessage = {
   localId: string;
@@ -155,9 +156,10 @@ type Props = {
   onTemplateSent?: (phoneNumber: string) => Promise<void>;
   onBack?: () => void;
   isVisible?: boolean;
+  onAssignmentChange?: () => void;
 };
 
-export function MessageView({ conversationId, phoneNumber, bsuid, username, contactName, onTemplateSent, onBack, isVisible = false }: Props) {
+export function MessageView({ conversationId, phoneNumber, bsuid, username, contactName, onTemplateSent, onBack, isVisible = false, onAssignmentChange }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -177,6 +179,45 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previousMessageCountRef = useRef(0);
+
+  // Chat assignment, keyed per contact exactly like the list (phone, else name, else first id).
+  const assignmentKey = conversationId ? (phoneNumber || contactName || conversationId.split(',')[0]) : undefined;
+  const [assignment, setAssignment] = useState<ChatAssignment | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
+  const [assignBusy, setAssignBusy] = useState(false);
+  const loadAssignment = useCallback(async () => {
+    if (!assignmentKey) return;
+    try {
+      const r = await fetch(`/api/assignments?key=${encodeURIComponent(assignmentKey)}`);
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j.assignment?.key === assignmentKey) { setAssignment(j.assignment); setMe(j.me); }
+    } catch {}
+  }, [assignmentKey]);
+  useEffect(() => { setAssignment(null); loadAssignment(); }, [loadAssignment]);
+  const assignAction = async (action: 'take' | 'release' | 'transfer' | 'resolve' | 'reopen', userId?: number) => {
+    if (!assignmentKey) return;
+    setAssignBusy(true);
+    try {
+      const r = await fetch('/api/assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: assignmentKey, action, userId }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) alert(j.error || 'No se pudo actualizar el chat');
+      if (j.assignment) setAssignment(j.assignment);
+      else await loadAssignment();
+      onAssignmentChange?.();
+    } finally {
+      setAssignBusy(false);
+    }
+  };
+  /** Warn before replying in a chat assigned to someone else. */
+  const confirmReply = () => {
+    if (!assignment || !me || assignment.assignedUserId == null || assignment.assignedUserId === me.id) return true;
+    return window.confirm(`Este chat está asignado a ${assignment.assignedName ?? 'otro usuario'}. ¿Responder de todos modos?`);
+  };
 
   useEffect(() => {
     fetch('/api/auth/me').then((r) => (r.ok ? r.json() : null)).then((me) => setMyName(me?.name || me?.username || null)).catch(() => {});
@@ -273,6 +314,7 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
   const handleRefresh = () => {
     setRefreshing(true);
     fetchMessages();
+    loadAssignment();
   };
 
   // Auto-polling for messages (every 5 seconds)
@@ -280,6 +322,12 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
     interval: 5000,
     enabled: !!conversationId,
     onPoll: fetchMessages
+  });
+  // Keep the assignment bar in sync with changes made by other users.
+  useAutoPolling({
+    interval: 15000,
+    enabled: !!assignmentKey,
+    onPoll: loadAssignment
   });
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -337,6 +385,7 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
     e.preventDefault();
     const content = messageInput.trim() ? messageInput : '';
     if (!content && !selectedFile) return;
+    if (!confirmReply()) return;
     if (!conversationId || (!phoneNumber && !bsuid)) {
       alert('Esta conversación no tiene un número o usuario válido para enviar.');
       return;
@@ -493,6 +542,7 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
             <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
           </Button>
         </div>
+        <AssignmentBar assignment={assignment} me={me} busy={assignBusy} onAction={assignAction} />
       </div>
 
       <div className="relative flex-1 h-0 flex flex-col">
@@ -695,7 +745,7 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
 </Button>
               <Button
                 type="button"
-                onClick={() => setShowInteractiveDialog(true)}
+                onClick={() => { if (confirmReply()) setShowInteractiveDialog(true); }}
                               size="icon"
                 variant="ghost"
                 className="text-muted-fg hover:text-brand-text hover:bg-panel"
@@ -732,7 +782,7 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
                     {getDisabledInputMessage(messages)}
                   </p>
                   <Button
-                    onClick={() => setShowTemplateDialog(true)}
+                    onClick={() => { if (confirmReply()) setShowTemplateDialog(true); }}
                     className="bg-brand hover:bg-brand-hover"
                     size="sm"
                   >

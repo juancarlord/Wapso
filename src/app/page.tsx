@@ -50,6 +50,7 @@ export default function Home() {
         onTemplateSent={handleTemplateSent}
         onBack={handleBackToList}
         isVisible={!!selectedConversation}
+        onAssignmentChange={() => { conversationListRef.current?.refresh(); }}
       />
     </div>
   );

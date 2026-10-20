@@ -27,6 +27,10 @@ type Conversation = {
   messagesCount?: number;
   lastInboundAt?: string;
   unread?: boolean;
+  assignmentKey?: string;
+  assignedUserId?: number | null;
+  assignedName?: string | null;
+  chatStatus?: 'open' | 'resolved';
   lastMessage?: {
     content: string;
     direction: string;
@@ -76,6 +80,14 @@ function getAvatarInitials(contactName?: string, phoneNumber?: string): string {
   return '??';
 }
 
+type Tab = 'mine' | 'unassigned' | 'all' | 'resolved';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'mine', label: 'Mis chats' },
+  { id: 'unassigned', label: 'Sin asignar' },
+  { id: 'all', label: 'Todos' },
+  { id: 'resolved', label: 'Resueltos' },
+];
+
 type Props = {
   onSelectConversation: (conversation: Conversation) => void;
   selectedConversationId?: string;
@@ -96,6 +108,9 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
   const [searchQuery, setSearchQuery] = useState('');
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [tab, setTab] = useState<Tab>('all');
+  const [myId, setMyId] = useState<number | null>(null);
+  const myIdRef = useRef<number | null>(null);
   
   // Per-contact latest inbound time seen on the previous poll (null until seeded by the first load).
   const lastInboundRef = useRef<Map<string, number> | null>(null);
@@ -138,6 +153,8 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
         markRead(c.id);
         continue;
       }
+      // Assigned chats notify only the assigned user; unassigned chats notify everyone.
+      if (c.assignedUserId != null && c.assignedUserId !== myIdRef.current) continue;
       fired = true;
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         // Privacy: contact name only (never phone number or message body). One notification per conversation (tag = conversation id, never the phone).
@@ -203,6 +220,7 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
         });
       }
 
+      if (typeof json.me === 'number') { myIdRef.current = json.me; setMyId(json.me); }
       if (!after && Array.isArray(json.data)) handleNewInbound(json.data as Conversation[]);
       setNextCursor(json.paging?.after ?? json.paging?.next ?? null);
     } catch (err) {
@@ -268,7 +286,25 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
     onSelectConversation(c);
   };
 
+  const inTab = (c: Conversation) => {
+    const resolved = c.chatStatus === 'resolved';
+    if (tab === 'resolved') return resolved;
+    if (resolved) return false;
+    if (tab === 'mine') return myId != null && c.assignedUserId === myId;
+    if (tab === 'unassigned') return c.assignedUserId == null;
+    return true;
+  };
+  const tabCount = (t: Tab) => conversations.filter((c) => {
+    const resolved = c.chatStatus === 'resolved';
+    if (t === 'resolved') return resolved;
+    if (resolved) return false;
+    if (t === 'mine') return myId != null && c.assignedUserId === myId;
+    if (t === 'unassigned') return c.assignedUserId == null;
+    return true;
+  }).length;
+
   const filteredConversations = conversations.filter((conv) => {
+    if (!inTab(conv)) return false;
     const query = searchQuery.toLowerCase();
     return (
       conv.phoneNumber.toLowerCase().includes(query) ||
@@ -349,12 +385,29 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
             className="pl-9 bg-surface border-line focus-visible:ring-brand rounded-lg"
           />
         </div>
+        <div role="tablist" aria-label="Filtrar chats" className="mt-3 grid grid-cols-4 gap-1 rounded-lg bg-surface p-1 border border-line">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              type="button"
+              aria-selected={tab === t.id}
+              onClick={() => setTab(t.id)}
+              className={cn(
+                'rounded-md px-1 py-1 text-xs font-medium transition-colors truncate',
+                tab === t.id ? 'bg-brand text-white' : 'text-muted-fg hover:bg-line/30'
+              )}
+            >
+              {t.label} <span className="opacity-75">{tabCount(t.id)}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <ScrollArea className="flex-1 h-0 overflow-hidden">
         {filteredConversations.length === 0 ? (
           <div className="p-4 text-center text-muted-fg">
-            {searchQuery ? 'No se encontraron conversaciones' : 'Aún no hay conversaciones'}
+            {searchQuery ? 'No se encontraron conversaciones' : conversations.length ? 'No hay chats en esta vista' : 'Aún no hay conversaciones'}
           </div>
         ) : (
           <div className="w-full overflow-hidden">
@@ -405,6 +458,11 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
                         {conversation.lastMessage.content}
                       </p>
                     )}
+                    <p className={cn('text-xs truncate mt-0.5', conversation.assignedUserId != null ? 'text-brand-text' : 'text-muted-fg italic')}>
+                      {conversation.assignedUserId != null
+                        ? (conversation.assignedUserId === myId ? 'Asignado a ti' : `Asignado a ${conversation.assignedName ?? 'Usuario eliminado'}`)
+                        : 'Sin asignar'}
+                    </p>
                   </div>
                   <span className="text-xs text-muted-fg flex-shrink-0 mt-0.5 ml-4">
                     {formatConversationDate(conversation.lastActiveAt)}

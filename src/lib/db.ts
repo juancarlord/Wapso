@@ -62,6 +62,19 @@ function init(): DatabaseSync {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  // Idempotent: one row per contact (phone, else contact name, else first Kapso id). No row = open + unassigned.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_assignments (
+      contact_key TEXT PRIMARY KEY,
+      assigned_user_id INTEGER,
+      assigned_at INTEGER,
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved')),
+      resolved_by_user_id INTEGER,
+      resolved_by_name TEXT,
+      resolved_at INTEGER,
+      updated_at INTEGER NOT NULL
+    );
+  `);
   bootstrapAdmin(db);
   return db;
 }

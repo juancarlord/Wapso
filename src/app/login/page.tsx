@@ -36,7 +36,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-panel p-4">
+    <div className="relative min-h-screen flex flex-col items-center justify-center gap-4 bg-panel p-4">
+      <span className="pointer-events-none select-none absolute bottom-3 right-4 text-xs text-muted-foreground opacity-50">Powered by TKB</span>
       <div className="flex flex-col items-center gap-2">
         <div className="rounded-2xl p-2 dark:bg-white dark:shadow-sm">
           {/* eslint-disable-next-line @next/next/no-img-element */}

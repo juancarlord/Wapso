@@ -1,5 +1,6 @@
 import { requireUser } from '@/lib/auth';
 import { getReadMarks } from '@/lib/db';
+import { contactKey, emptyAssignment, getAllAssignments, reopenIfNewInbound } from '@/lib/assignments';
 import { mediaPreviewText } from '@/lib/media-text';
 import { NextResponse } from 'next/server';
 import {
@@ -136,11 +137,34 @@ export async function GET(request: Request) {
       return timeB - timeA;
     });
 
+    // Attach per-contact assignment; auto-reopen resolved chats that got a new inbound message (same agent kept).
+    let assignments = new Map<string, ReturnType<typeof emptyAssignment>>();
+    try {
+      assignments = getAllAssignments();
+    } catch (e) {
+      console.error('[API] assignments unavailable, listing chats without them:', e);
+    }
+    for (const c of finalData) {
+      const key = contactKey(c);
+      let a = assignments.get(key) ?? emptyAssignment(key);
+      const ia = c.lastInboundAt ? Date.parse(c.lastInboundAt) : NaN;
+      const ib = c.lastMessage?.direction === 'inbound' && c.lastActiveAt ? Date.parse(c.lastActiveAt) : NaN;
+      const latestInbound = Math.max(Number.isFinite(ia) ? ia : 0, Number.isFinite(ib) ? ib : 0);
+      let reopened = false;
+      try { reopened = reopenIfNewInbound(a, latestInbound); } catch (e) { console.error('[API] auto-reopen failed:', e); }
+      if (reopened) a = { ...a, status: 'open', resolvedAt: null, resolvedByName: null, resolvedByUserId: null };
+      c.assignmentKey = key;
+      c.assignedUserId = a.assignedUserId;
+      c.assignedName = a.assignedName;
+      c.chatStatus = a.status;
+    }
+
     console.log(`[API] Fetched ${finalData.length} conversations (after merge)`);
     console.log('[API] conversations.list -> items:', response.data?.length, 'paging:', response.paging);
 
     return NextResponse.json({
       data: finalData,
+      me: authUser.id,
       paging: response.paging // includes 'after' cursor for next page
     });
   } catch (error) {
