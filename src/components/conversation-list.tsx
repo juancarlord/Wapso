@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallba
 import { format, isValid, isToday, isYesterday } from 'date-fns';
 import { RefreshCw, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { contactKey } from '@/lib/contact-key';
+import { WhatsNew } from '@/components/whats-new';
 import { useAutoPolling } from '@/hooks/use-auto-polling';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -52,8 +54,8 @@ function formatConversationDate(timestamp: string): string {
 }
 
 /** In-memory only (never leaves the page): stable per-contact key; merged conversation ids change when Kapso opens a new conversation for the same contact. */
-function conversationKey(c: { id: string; phoneNumber?: string; contactName?: string }): string {
-  return c.phoneNumber || c.contactName || c.id;
+function conversationKey(c: { id: string; phoneNumber?: string; username?: string | null }): string {
+  return contactKey(c);
 }
 
 /** Latest inbound time: Kapso's last_inbound_at, or lastActiveAt when the last message is inbound. */
@@ -371,6 +373,7 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
             </Button>
             <NotificationsToggle />
             <ThemeToggle />
+            <WhatsNew />
             <LogoutButton />
           </div>
         </div>

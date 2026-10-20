@@ -6,6 +6,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { format, isValid, isToday, isYesterday, differenceInHours } from 'date-fns';
 import { RefreshCw, Paperclip, Send, X, AlertCircle, MessageSquare, XCircle, ListTree, ArrowLeft, Clock, Check, CheckCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { contactKey } from '@/lib/contact-key';
 import { MediaMessage, mediaKindFrom } from '@/components/media-message';
 import { TemplateSelectorDialog } from '@/components/template-selector-dialog';
 import { InteractiveMessageDialog } from '@/components/interactive-message-dialog';
@@ -181,7 +182,7 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
   const previousMessageCountRef = useRef(0);
 
   // Chat assignment, keyed per contact exactly like the list (phone, else name, else first id).
-  const assignmentKey = conversationId ? (phoneNumber || contactName || conversationId.split(',')[0]) : undefined;
+  const assignmentKey = conversationId ? contactKey({ id: conversationId, phoneNumber, username }) : undefined;
   const [assignment, setAssignment] = useState<ChatAssignment | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [assignBusy, setAssignBusy] = useState(false);

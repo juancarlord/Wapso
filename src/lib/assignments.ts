@@ -1,9 +1,7 @@
 import { getDb, type UserRow } from '@/lib/db';
 
-/** Per-contact key (same as the list's conversationKey): phone, else contact name, else first Kapso id. */
-export function contactKey(c: { id: string; phoneNumber?: string; contactName?: string }): string {
-  return c.phoneNumber || c.contactName || c.id.split(',')[0];
-}
+/** Per-contact key (same as the list's conversationKey): phone, else @username, else first Kapso id. */
+export { contactKey } from '@/lib/contact-key';
 
 export function isValidKey(k: unknown): k is string {
   return typeof k === 'string' && k.length > 0 && k.length <= 200 && !/[\u0000-\u001f]/.test(k);
