@@ -5,8 +5,11 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/password-input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { RowMenu } from '@/components/row-menu';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
 type Role = 'admin' | 'lead' | 'agent';
 const ROLE_LABELS: Record<Role, string> = { admin: 'Administrador', lead: 'Líder', agent: 'Agente' };
@@ -48,9 +51,16 @@ export default function UsersAdminPage() {
   };
   const act = (u: User, action: string, extra: Record<string, string> = {}, msg = 'Cambios guardados') =>
     call(`/api/admin/users/${u.id}`, 'PATCH', { action, ...extra }, msg);
-  const reset = (u: User) => {
-    const pw = window.prompt(`Nueva contraseña temporal para ${u.username} (mínimo 10 caracteres):`);
-    if (pw) act(u, 'reset_password', { password: pw }, `Contraseña de ${u.username} restablecida`);
+  // Reset uses a small dialog (not window.prompt) so the password field can be masked and toggled.
+  const [resetUser, setResetUser] = useState<User | null>(null);
+  const [resetPw, setResetPw] = useState('');
+  const reset = (u: User) => { setResetPw(''); setResetUser(u); };
+  const submitReset = (e: FormEvent) => {
+    e.preventDefault();
+    if (!resetUser || resetPw.length < 10) return;
+    act(resetUser, 'reset_password', { password: resetPw }, `Contraseña de ${resetUser.username} restablecida`);
+    setResetUser(null);
+    setResetPw('');
   };
 
   const canWrite = myRole === 'admin' || myRole === 'lead';
@@ -81,7 +91,7 @@ export default function UsersAdminPage() {
           <div className="space-y-1"><Label htmlFor="n">Nombre</Label>
             <Input id="n" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
           <div className="space-y-1"><Label htmlFor="p">Contraseña temporal</Label>
-            <Input id="p" type="password" autoComplete="new-password" required minLength={10} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
+            <PasswordInput id="p" autoComplete="new-password" required minLength={10} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
           <div className="space-y-1"><Label htmlFor="r">Rol</Label>
             <select id="r" className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
               <option value="agent">Agente</option>
@@ -95,32 +105,44 @@ export default function UsersAdminPage() {
         <div className="bg-surface rounded-lg border border-line overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-muted-fg border-b border-line">
-              <tr><th className="p-3">Usuario</th><th className="p-3">Nombre</th><th className="p-3">Rol</th><th className="p-3">Estado</th>{canWrite && <th className="p-3">Último ingreso</th>}{canWrite && <th className="p-3">Acciones</th>}</tr>
+              <tr><th className="p-3">Usuario</th><th className="p-3">Nombre</th><th className="p-3">Rol</th><th className="p-3">Estado</th>{canWrite && <th className="p-3">Último ingreso</th>}{canWrite && <th className="p-3 text-right"><span className="sr-only">Acciones</span></th>}</tr>
             </thead>
             <tbody>
               {users.map((u) => {
                 const self = u.id === me;
                 return (
-                  <tr key={u.id} className="border-b border-panel last:border-0">
-                    <td className="p-3 font-medium">{u.username}{self && ' (tú)'}</td>
-                    <td className="p-3">{u.name}</td>
-                    <td className="p-3">{ROLE_LABELS[u.role] ?? u.role}</td>
-                    <td className="p-3">{u.active ? <Badge variant="secondary">Activo</Badge> : <Badge variant="outline">Inactivo</Badge>}
-                      {u.must_change_password ? <span className="ml-1 text-xs text-muted-fg">debe cambiar contraseña</span> : null}</td>
-                    {canWrite && <td className="p-3 text-muted-fg">{fmt(u.last_login_at ?? null)}</td>}
-                    {canWrite && (
-                    <td className="p-3 flex flex-wrap gap-1">
-                      {!self && canManage(u) && <Button size="sm" variant="outline" onClick={() => reset(u)}>Restablecer contraseña</Button>}
-                      {!self && myRole === 'admin' && (
-                        <select aria-label={`Rol de ${u.username}`} className="h-8 rounded-md border border-input bg-transparent px-2 text-sm" value={u.role}
+                  <tr key={u.id} className="border-b border-line-soft last:border-0 align-middle">
+                    <td className="px-3 py-2.5 font-medium">{u.username}{self && <span className="ml-1 text-xs text-muted-fg">(tú)</span>}</td>
+                    <td className="px-3 py-2.5">{u.name}</td>
+                    <td className="px-3 py-2.5">
+                      {!self && myRole === 'admin' ? (
+                        <select aria-label={`Rol de ${u.username}`} className="h-8 rounded-md border border-line bg-surface text-fg px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand" value={u.role}
                           onChange={(e) => act(u, 'set_role', { role: e.target.value }, `Rol de ${u.username} actualizado`)}>
                           <option value="agent">Agente</option><option value="lead">Líder</option><option value="admin">Administrador</option>
                         </select>
-                      )}
-                      {!self && canManage(u) && (u.active
-                        ? <Button size="sm" variant="outline" className="text-red-600" onClick={() => window.confirm(`¿Desactivar a ${u.username}?`) && act(u, 'deactivate', {}, `${u.username} desactivado`)}>Desactivar</Button>
-                        : <Button size="sm" variant="outline" onClick={() => act(u, 'reactivate', {}, `${u.username} reactivado`)}>Reactivar</Button>)}
-                      {!self && canManage(u) && <Button size="sm" variant="outline" className="text-red-600" onClick={() => remove(u)}>Eliminar</Button>}
+                      ) : (ROLE_LABELS[u.role] ?? u.role)}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {u.active ? <Badge variant="secondary">Activo</Badge> : <Badge variant="outline">Inactivo</Badge>}
+                        {u.must_change_password ? (
+                          <Badge variant="outline" className="border-amber-500/50 bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">debe cambiar contraseña</Badge>
+                        ) : null}
+                      </div>
+                    </td>
+                    {canWrite && <td className="px-3 py-2.5 text-muted-fg whitespace-nowrap">{fmt(u.last_login_at ?? null)}</td>}
+                    {canWrite && (
+                    <td className="px-3 py-2.5 text-right w-12">
+                      <RowMenu
+                        label={`Acciones para ${u.username}`}
+                        items={!self && canManage(u) ? [
+                          { label: 'Restablecer contraseña', onSelect: () => reset(u) },
+                          u.active
+                            ? { label: 'Desactivar', onSelect: () => { if (window.confirm(`¿Desactivar a ${u.username}?`)) act(u, 'deactivate', {}, `${u.username} desactivado`); } }
+                            : { label: 'Activar', onSelect: () => act(u, 'reactivate', {}, `${u.username} reactivado`) },
+                          { label: 'Eliminar', danger: true, separatorBefore: true, onSelect: () => remove(u) },
+                        ] : []}
+                      />
                     </td>
                     )}
                   </tr>
@@ -130,6 +152,22 @@ export default function UsersAdminPage() {
           </table>
         </div>
       </div>
+      <Dialog open={!!resetUser} onOpenChange={(o) => { if (!o) { setResetUser(null); setResetPw(''); } }}>
+        <DialogContent className="bg-surface text-fg border-line sm:max-w-sm">
+          <DialogTitle>Restablecer contraseña</DialogTitle>
+          <DialogDescription className="text-muted-fg">
+            Nueva contraseña temporal para {resetUser?.username} (mínimo 10 caracteres). Deberá cambiarla al ingresar.
+          </DialogDescription>
+          <form onSubmit={submitReset} className="space-y-3">
+            <Label htmlFor="reset-pw">Contraseña temporal</Label>
+            <PasswordInput id="reset-pw" autoComplete="new-password" required minLength={10} autoFocus value={resetPw} onChange={(e) => setResetPw(e.target.value)} />
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => { setResetUser(null); setResetPw(''); }}>Cancelar</Button>
+              <Button type="submit" disabled={resetPw.length < 10} className="bg-brand hover:bg-brand-hover text-white">Restablecer</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

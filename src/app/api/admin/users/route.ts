@@ -1,14 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { canAssignRole, requireManager, requireUser } from '@/lib/auth';
+import { canAssignRole, requireManager } from '@/lib/auth';
 import { getDb, getUserByUsername, toPublic, ROLES, type Role, type UserRow } from '@/lib/db';
 import { hashPassword, MIN_PASSWORD_LENGTH } from '@/lib/password';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Any role can list users (agents read-only).
+// Admin and lead only (agents use /api/users/active for the transfer list).
 export async function GET(req: NextRequest) {
-  const me = await requireUser(req);
+  const me = await requireManager(req);
   if (me instanceof NextResponse) return me;
   const rows = getDb().prepare('SELECT * FROM users ORDER BY active DESC, username').all() as UserRow[];
   const users = rows.map((r) => {

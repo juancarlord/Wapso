@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/password-input';
 import { Label } from '@/components/ui/label';
 
 export default function ChangePasswordPage() {
@@ -39,15 +39,15 @@ export default function ChangePasswordPage() {
         <p className="text-sm text-muted-fg text-center">Elige una contraseña nueva de al menos 10 caracteres.</p>
         <div className="space-y-2">
           <Label htmlFor="current">Contraseña actual</Label>
-          <Input id="current" type="password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
+          <PasswordInput id="current" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
         </div>
         <div className="space-y-2">
           <Label htmlFor="next">Nueva contraseña</Label>
-          <Input id="next" type="password" autoComplete="new-password" required value={next} onChange={(e) => setNext(e.target.value)} />
+          <PasswordInput id="next" autoComplete="new-password" required value={next} onChange={(e) => setNext(e.target.value)} />
         </div>
         <div className="space-y-2">
           <Label htmlFor="confirm">Repite la nueva contraseña</Label>
-          <Input id="confirm" type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          <PasswordInput id="confirm" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
         </div>
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         <Button type="submit" disabled={loading} className="w-full bg-brand hover:bg-brand-hover text-white">

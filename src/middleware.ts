@@ -50,9 +50,13 @@ export async function middleware(req: NextRequest) {
       : NextResponse.redirect(new URL('/cambiar-contrasena', req.url));
   }
 
-  // Every role may view /admin/usuarios (agents read-only). Writes under /api/admin need admin or lead;
-  // the route handlers enforce the per-target rules.
-  if (pathname.startsWith('/api/admin/') && !['GET', 'HEAD'].includes(method) && user.role !== 'admin' && user.role !== 'lead') {
+  // Admin area (pages and APIs) is for admin and lead only; agents are redirected / refused.
+  // The route handlers also enforce role and per-target rules.
+  const isManager = user.role === 'admin' || user.role === 'lead';
+  if (!isManager && (pathname === '/admin' || pathname.startsWith('/admin/'))) {
+    return NextResponse.redirect(new URL('/', req.url));
+  }
+  if (!isManager && pathname.startsWith('/api/admin/')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

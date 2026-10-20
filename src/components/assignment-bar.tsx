@@ -15,7 +15,7 @@ export type ChatAssignment = {
   resolvedAt: number | null;
 };
 export type Me = { id: number; role: 'admin' | 'lead' | 'agent' };
-type UserOpt = { id: number; name: string; username: string; active: number };
+type UserOpt = { id: number; name: string };
 
 type Props = {
   assignment: ChatAssignment | null;
@@ -29,7 +29,7 @@ export function AssignmentBar({ assignment: a, me, busy, onAction }: Props) {
   const [transferring, setTransferring] = useState(false);
   useEffect(() => {
     if (!transferring || users.length) return;
-    fetch('/api/admin/users').then((r) => (r.ok ? r.json() : null)).then((j) => setUsers((j?.users ?? []).filter((u: UserOpt) => u.active))).catch(() => {});
+    fetch('/api/users/active').then((r) => (r.ok ? r.json() : null)).then((j) => setUsers(j?.users ?? [])).catch(() => {});
   }, [transferring, users.length]);
 
   if (!a || !me) return null;
@@ -79,7 +79,7 @@ export function AssignmentBar({ assignment: a, me, busy, onAction }: Props) {
           >
             <option value="" disabled>Transferir a…</option>
             {users.filter((u) => u.id !== a.assignedUserId).map((u) => (
-              <option key={u.id} value={u.id}>{u.name || u.username}</option>
+              <option key={u.id} value={u.id}>{u.name}</option>
             ))}
           </select>
         )}
