@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { LogOut, Users } from 'lucide-react';
+import { BarChart3, LogOut, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export function LogoutButton() {
@@ -20,6 +20,11 @@ export function LogoutButton() {
       {canAdmin && (
         <Button asChild variant="ghost" size="icon" title="Usuarios" aria-label="Usuarios" className={cls}>
           <a href="/admin/usuarios"><Users className="h-4 w-4" /></a>
+        </Button>
+      )}
+      {canAdmin && (
+        <Button asChild variant="ghost" size="icon" title="Métricas" aria-label="Métricas" className={cls}>
+          <a href="/admin/metricas"><BarChart3 className="h-4 w-4" /></a>
         </Button>
       )}
       <Button onClick={logout} variant="ghost" size="icon" title="Cerrar sesión" aria-label="Cerrar sesión" className={cls}>

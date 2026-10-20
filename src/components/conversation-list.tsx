@@ -110,7 +110,7 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
   const [searchQuery, setSearchQuery] = useState('');
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [tab, setTab] = useState<Tab>('all');
+  const [tab, setTab] = useState<Tab>('unassigned');
   const [myId, setMyId] = useState<number | null>(null);
   const myIdRef = useRef<number | null>(null);
   
