@@ -7,7 +7,10 @@
     "start": "next start",
     "lint": "eslint",
     "hash-password": "node scripts/hash-password.mjs",
-    "test:media-text": "node --experimental-strip-types --no-warnings scripts/test-media-text.mts"
+    "test:media-text": "node --experimental-strip-types --no-warnings scripts/test-media-text.mts",
+    "test": "node --test --experimental-strip-types --no-warnings tests/*.test.ts",
+    "kapso:export": "node --experimental-strip-types --no-warnings scripts/kapso-export.mts",
+    "media:tier": "node --experimental-strip-types --no-warnings scripts/media-tier.mts"
   },
   "dependencies": {
     "@kapso/whatsapp-cloud-api": "^0.1.0",

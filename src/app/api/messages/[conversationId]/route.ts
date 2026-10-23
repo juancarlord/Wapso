@@ -9,7 +9,11 @@ import {
   type MediaData,
   type MetaMessage
 } from '@kapso/whatsapp-cloud-api';
-import { whatsappClient, PHONE_NUMBER_ID } from '@/lib/whatsapp-client';
+import { whatsappClient, PHONE_NUMBER_ID, IS_LOCAL } from '@/lib/whatsapp-client';
+import { getDb } from '@/lib/db';
+import { getSeq } from '@/lib/inbox-store';
+import { listLocalMessages } from '@/lib/inbox-read';
+import { safeError } from '@/lib/log';
 
 type MessageTypeData = {
   filename?: string;
@@ -92,6 +96,18 @@ export async function GET(
     const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 100) : 50;
 
     const conversationIds = conversationId.split(',');
+
+    if (IS_LOCAL) {
+      const db = getDb();
+      const seq = getSeq(db);
+      const since = Number(searchParams.get('since'));
+      if (Number.isFinite(since) && since > 0 && seq <= since) return new NextResponse(null, { status: 204 });
+      const before = Number(searchParams.get('before'));
+      const data = listLocalMessages(db, conversationIds, limit, Number.isFinite(before) && before > 0 ? before : undefined);
+      const names = getSenderNames(data.filter((m) => m.direction === 'outbound').map((m) => m.id));
+      const out = data.map((m) => (m.direction === 'outbound' && names.get(m.id) ? { ...m, senderName: names.get(m.id) } : m));
+      return NextResponse.json({ data: out, paging: { before: data[0] ? Date.parse(data[0].createdAt) : null }, seq });
+    }
     
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let allTransformedData: any[] = [];
@@ -225,7 +241,7 @@ export async function GET(
       paging: finalPaging
     });
   } catch (error) {
-    console.error('Error fetching messages:', error);
+    safeError('messages', error);
     return NextResponse.json(
       { error: 'Failed to fetch messages', conversationId },
       { status: 500 }

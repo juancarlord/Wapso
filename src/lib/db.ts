@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isValidHashFormat } from '@/lib/password';
+import { ensureInboxSchema, migrateLegacyKeys } from '@/lib/inbox-store';
 
 export type Role = 'admin' | 'lead' | 'agent';
 export const ROLES: Role[] = ['admin', 'lead', 'agent'];
@@ -62,7 +63,7 @@ function init(): DatabaseSync {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
-  // Idempotent: one row per contact (phone, else contact name, else first Kapso id). No row = open + unassigned.
+  // Idempotent: one row per contact (phone, else @username, else first conversation id). No row = open + unassigned.
   db.exec(`
     CREATE TABLE IF NOT EXISTS conversation_assignments (
       contact_key TEXT PRIMARY KEY,
@@ -75,6 +76,14 @@ function init(): DatabaseSync {
       updated_at INTEGER NOT NULL
     );
   `);
+  // P-009: own message store (contacts, conversations, messages, statuses, meta_events, kv). Idempotent.
+  ensureInboxSchema(db);
+  try {
+    const r = migrateLegacyKeys(db);
+    if (r.reads || r.assignments) console.log(`[inbox] rekeyed legacy rows: reads=${r.reads} assignments=${r.assignments}`);
+  } catch (e) {
+    console.error('[inbox] legacy rekey failed', e instanceof Error ? e.name : 'error');
+  }
   bootstrapAdmin(db);
   return db;
 }

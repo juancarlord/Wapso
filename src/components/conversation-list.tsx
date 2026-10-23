@@ -23,6 +23,7 @@ type Conversation = {
   lastActiveAt: string;
   phoneNumberId: string;
   bsuid?: string;
+  chatKey?: string;
   username?: string | null;
   metadata?: Record<string, unknown>;
   contactName?: string;
@@ -54,7 +55,7 @@ function formatConversationDate(timestamp: string): string {
 }
 
 /** In-memory only (never leaves the page): stable per-contact key; merged conversation ids change when Kapso opens a new conversation for the same contact. */
-function conversationKey(c: { id: string; phoneNumber?: string; username?: string | null }): string {
+function conversationKey(c: { id: string; phoneNumber?: string; username?: string | null; chatKey?: string }): string {
   return contactKey(c);
 }
 
@@ -107,6 +108,8 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const sinceRef = useRef<string | null>(null);
+  const [fastPoll, setFastPoll] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -187,12 +190,16 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
 
       const url = new URL('/api/conversations', window.location.origin);
       if (after) url.searchParams.set('after', after);
+      else if (sinceRef.current) url.searchParams.set('since', sinceRef.current);
       // optional: url.searchParams.set('limit', '100');
 
-      console.log('[FE] GET', url.toString());
       const res = await fetch(url.toString());
+      if (res.status === 204) return; // local store: nothing changed since last poll
       const json = await res.json();
-      console.log('[FE] /api/conversations response paging:', json.paging, 'items:', json.data?.length);
+      if (!after) {
+        sinceRef.current = typeof json.seq === 'string' ? json.seq : null;
+        setFastPoll(typeof json.seq === 'string');
+      }
 
       if (after) {
         // append new page, avoid duplicates
@@ -254,7 +261,7 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
     return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
   const { isPolling } = useAutoPolling({
-    interval: tabHidden ? 30000 : 10000,
+    interval: tabHidden ? 30000 : fastPoll ? 3000 : 10000,
     enabled: true,
     pauseWhenHidden: false, // keep polling in background tabs so notifications work
     onPoll: fetchConversations

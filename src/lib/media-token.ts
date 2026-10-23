@@ -83,10 +83,11 @@ export function openMediaToken(token: string): string | null {
   }
 }
 
-/** True for types the browser may render inline: image/*, audio/*, video/*, application/pdf. */
+/** Types the browser may render inline. Explicit allowlist: no SVG or other scriptable image types. */
+const INLINE_IMAGE = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 function isInlineSafe(contentType: string): boolean {
   const t = contentType.split(';')[0].trim().toLowerCase();
-  return /^(image|audio|video)\/[a-z0-9.+-]+$/.test(t) || t === 'application/pdf';
+  return INLINE_IMAGE.has(t) || /^(audio|video)\/[a-z0-9.+-]+$/.test(t) || t === 'application/pdf';
 }
 
 /**

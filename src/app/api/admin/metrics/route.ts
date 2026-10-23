@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { requireManager } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 import { contactKey, getAllAssignments } from '@/lib/assignments';
-import { whatsappClient, PHONE_NUMBER_ID } from '@/lib/whatsapp-client';
+import { whatsappClient, PHONE_NUMBER_ID, IS_LOCAL } from '@/lib/whatsapp-client';
+import { safeError } from '@/lib/log';
+import { alert } from '@/lib/alert';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,7 +24,7 @@ export async function GET(request: Request) {
   const me = await requireManager(request);
   if (me instanceof NextResponse) return me;
   const p = new URL(request.url).searchParams.get('period') as Period | null;
-  const period: Period = p && p in PERIODS ? p : '7d';
+  const period: Period = p && Object.hasOwn(PERIODS, p) ? p : '7d';
   const start = periodStart(PERIODS[period]);
   const db = getDb();
   getAllAssignments(); // ensures the assignments table exists on older DBs
@@ -72,9 +74,7 @@ export async function GET(request: Request) {
   // Current open / unassigned: one Kapso page (latest 100 conversations, same source as the list) joined with our table.
   let open: number | null = null;
   let unassigned: number | null = null;
-  try {
-    const res = await whatsappClient.conversations.list({ phoneNumberId: PHONE_NUMBER_ID, limit: 100 });
-    const keys = new Set(res.data.map((c) => contactKey({ id: c.id, phoneNumber: c.phoneNumber ?? '', username: typeof c.username === 'string' ? c.username : null })));
+  const countOpen = (keys: Iterable<string>) => {
     const asg = getAllAssignments();
     open = 0; unassigned = 0;
     for (const k of keys) {
@@ -83,8 +83,23 @@ export async function GET(request: Request) {
       open++;
       if (!a || a.assignedUserId == null) unassigned++;
     }
-  } catch (e) {
-    console.error('[API] metrics: conversations unavailable', e);
+  };
+  if (IS_LOCAL) {
+    // Our own store: every conversation, no external call (K8).
+    const rows = db.prepare('SELECT contact_key AS k FROM conversations').all() as { k: string }[];
+    countOpen(new Set(rows.map((r) => r.k)));
+  } else {
+    try {
+      const res = await Promise.race([
+        whatsappClient.conversations.list({ phoneNumberId: PHONE_NUMBER_ID, limit: 100 }),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('metrics upstream timeout')), 10_000)),
+      ]);
+      countOpen(new Set(res.data.map((c) => contactKey({ id: c.id, phoneNumber: c.phoneNumber ?? '', username: typeof c.username === 'string' ? c.username : null }))));
+    } catch (e) {
+      open = null; unassigned = null;
+      safeError('metrics', e); // name/message/status only, never headers or the API key
+      void alert('metrics_upstream');
+    }
   }
 
   return NextResponse.json({

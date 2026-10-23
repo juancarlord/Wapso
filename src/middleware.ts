@@ -12,6 +12,7 @@ if (process.env.AUTH_INSECURE_COOKIE === '1') {
     : '[auth] !!! AUTH_INSECURE_COOKIE=1: session cookie is NOT Secure (dev only).');
 }
 
+const WEBHOOK_PATH = '/api/webhooks/meta';
 const PUBLIC_PATHS = new Set(['/login', '/api/auth/login']);
 // Reachable while a password change is pending.
 const CHANGE_PW_PATHS = new Set(['/cambiar-contrasena', '/api/auth/change-password', '/api/auth/logout', '/api/auth/me']);
@@ -20,6 +21,9 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const isApi = pathname.startsWith('/api/');
   const method = req.method.toUpperCase();
+
+  // Meta webhook (exact path): authenticated by its HMAC signature in the route, no session/Origin.
+  if (pathname === WEBHOOK_PATH) return NextResponse.next();
 
   if (!getAuthSecret()) {
     console.error('[auth] AUTH_SECRET missing or shorter than 32 chars');

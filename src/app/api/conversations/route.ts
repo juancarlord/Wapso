@@ -8,7 +8,11 @@ import {
   type ConversationKapsoExtensions,
   type ConversationRecord
 } from '@kapso/whatsapp-cloud-api';
-import { whatsappClient, PHONE_NUMBER_ID } from '@/lib/whatsapp-client';
+import { whatsappClient, PHONE_NUMBER_ID, IS_LOCAL } from '@/lib/whatsapp-client';
+import { getDb } from '@/lib/db';
+import { getSeq } from '@/lib/inbox-store';
+import { listLocalConversations } from '@/lib/inbox-read';
+import { safeError } from '@/lib/log';
 
 function parseDirection(kapso?: ConversationKapsoExtensions): 'inbound' | 'outbound' {
   if (!kapso) {
@@ -28,8 +32,9 @@ function parseDirection(kapso?: ConversationKapsoExtensions): 'inbound' | 'outbo
 }
 
 export async function GET(request: Request) {
-  const authUser = await requireUser(request);
-  if (authUser instanceof NextResponse) return authUser;
+  const authUserOrRes = await requireUser(request);
+  if (authUserOrRes instanceof NextResponse) return authUserOrRes;
+  const authUser = authUserOrRes;
 
   try {
     const { searchParams } = new URL(request.url);
@@ -37,7 +42,16 @@ export async function GET(request: Request) {
     const after = searchParams.get('after'); // cursor for pagination
     const limit = 100; // max allowed by API
 
-    console.log('[API] GET /api/conversations', { status, after, limit });
+    if (IS_LOCAL) {
+      const db = getDb();
+      // Cursor = message change seq + latest assignment change, so another agent's take/resolve also refreshes.
+      getAllAssignments();
+      const asg = (db.prepare('SELECT COALESCE(MAX(updated_at),0) AS t FROM conversation_assignments').get() as { t: number }).t;
+      const seq = `${getSeq(db)}.${asg}`;
+      // Nothing changed since the client's cursor: 204 (cheap 3 s polling, D1).
+      if (searchParams.get('since') === seq) return new NextResponse(null, { status: 204 });
+      return finish(listLocalConversations(db, PHONE_NUMBER_ID, limit), {}, seq);
+    }
     const response = await whatsappClient.conversations.list({
       phoneNumberId: PHONE_NUMBER_ID,
       ...(status && { status: status as 'active' | 'ended' }),
@@ -53,9 +67,6 @@ export async function GET(request: Request) {
       ])
     });
 
-    if (response.data && response.data.length > 0) {
-      console.log('[API] First conversation data:', JSON.stringify(response.data[0], null, 2));
-    }
 
     // Transform conversations to match frontend expectations
     const transformedData = response.data.map((conversation: ConversationRecord) => {
@@ -86,6 +97,14 @@ export async function GET(request: Request) {
       };
     });
 
+    return finish(transformedData, response.paging);
+  } catch (error) {
+    safeError('conversations', error);
+    return NextResponse.json({ error: 'Failed to fetch conversations' }, { status: 500 });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function finish(transformedData: any[], paging: unknown, seq?: string) {
     // Per-user unread: a member conversation is unread if its latest inbound is newer than this user's read mark.
     const readMarks = getReadMarks(authUser.id);
     const isUnread = (c: { id: string; lastInboundAt?: string; lastActiveAt?: string; lastMessage?: { direction: string } }) => {
@@ -142,7 +161,7 @@ export async function GET(request: Request) {
     try {
       assignments = getAllAssignments();
     } catch (e) {
-      console.error('[API] assignments unavailable, listing chats without them:', e);
+      safeError('assignments', e);
     }
     for (const c of finalData) {
       const key = contactKey(c);
@@ -151,7 +170,7 @@ export async function GET(request: Request) {
       const ib = c.lastMessage?.direction === 'inbound' && c.lastActiveAt ? Date.parse(c.lastActiveAt) : NaN;
       const latestInbound = Math.max(Number.isFinite(ia) ? ia : 0, Number.isFinite(ib) ? ib : 0);
       let reopened = false;
-      try { reopened = reopenIfNewInbound(a, latestInbound); } catch (e) { console.error('[API] auto-reopen failed:', e); }
+      try { reopened = reopenIfNewInbound(a, latestInbound); } catch (e) { safeError('auto-reopen', e); }
       if (reopened) a = { ...a, status: 'open', resolvedAt: null, resolvedByName: null, resolvedByUserId: null };
       c.assignmentKey = key;
       c.assignedUserId = a.assignedUserId;
@@ -159,19 +178,12 @@ export async function GET(request: Request) {
       c.chatStatus = a.status;
     }
 
-    console.log(`[API] Fetched ${finalData.length} conversations (after merge)`);
-    console.log('[API] conversations.list -> items:', response.data?.length, 'paging:', response.paging);
 
     return NextResponse.json({
       data: finalData,
       me: authUser.id,
-      paging: response.paging // includes 'after' cursor for next page
+      paging, // includes 'after' cursor for next page (Kapso)
+      ...(seq !== undefined && { seq }),
     });
-  } catch (error) {
-    console.error('Error fetching conversations:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch conversations' },
-      { status: 500 }
-    );
   }
 }

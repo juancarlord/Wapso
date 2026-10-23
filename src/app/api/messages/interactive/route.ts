@@ -2,6 +2,10 @@ import { extractSentMessageId, recordMessageSender } from '@/lib/db';
 import { requireUser } from '@/lib/auth';
 import { NextResponse } from 'next/server';
 import { whatsappClient, PHONE_NUMBER_ID } from '@/lib/whatsapp-client';
+import { safeError } from '@/lib/log';
+import { alert } from '@/lib/alert';
+import { friendlyResponse, isWindowError, storeOutbound, windowClosed } from '@/lib/outbound';
+import { graphErrorCode } from '@/lib/send-rules';
 
 export async function POST(request: Request) {
   const authUser = await requireUser(request);
@@ -25,6 +29,9 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const closed = windowClosed(phoneNumber);
+    if (closed) return closed;
 
     // Build interactive button message payload
     const payload: {
@@ -56,12 +63,17 @@ export async function POST(request: Request) {
 
     const sentId = extractSentMessageId(result);
     if (sentId) {
-      try { recordMessageSender(sentId, authUser); } catch (e) { console.error('[senders] record failed', e); }
+      try { recordMessageSender(sentId, authUser); } catch (e) { safeError('senders', e); }
     }
+    storeOutbound(phoneNumber, sentId, { type: 'interactive', body: bodyText });
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Error sending interactive message:', error);
+    if (isWindowError(error)) return NextResponse.json({ error: 'window_closed' }, { status: 409 });
+    const friendly = friendlyResponse(graphErrorCode(error));
+    if (friendly) return friendly;
+    safeError('interactive', error);
+    void alert('send_failed');
     return NextResponse.json(
       { error: 'Failed to send interactive message' },
       { status: 500 }

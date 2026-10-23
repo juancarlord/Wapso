@@ -7,6 +7,7 @@ import { format, isValid, isToday, isYesterday, differenceInHours } from 'date-f
 import { RefreshCw, Paperclip, Send, X, AlertCircle, MessageSquare, XCircle, ListTree, ArrowLeft, Clock, Check, CheckCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { contactKey } from '@/lib/contact-key';
+import { shouldSendTyping } from '@/lib/send-rules';
 import { MediaMessage, mediaKindFrom } from '@/components/media-message';
 import { TemplateSelectorDialog } from '@/components/template-selector-dialog';
 import { InteractiveMessageDialog } from '@/components/interactive-message-dialog';
@@ -152,6 +153,7 @@ type Props = {
   conversationId?: string;
   phoneNumber?: string;
   bsuid?: string;
+  chatKey?: string;
   username?: string | null;
   contactName?: string;
   onTemplateSent?: (phoneNumber: string) => Promise<void>;
@@ -160,7 +162,7 @@ type Props = {
   onAssignmentChange?: () => void;
 };
 
-export function MessageView({ conversationId, phoneNumber, bsuid, username, contactName, onTemplateSent, onBack, isVisible = false, onAssignmentChange }: Props) {
+export function MessageView({ conversationId, phoneNumber, bsuid, chatKey, username, contactName, onTemplateSent, onBack, isVisible = false, onAssignmentChange }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -182,7 +184,16 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
   const previousMessageCountRef = useRef(0);
 
   // Chat assignment, keyed per contact exactly like the list (phone, else name, else first id).
-  const assignmentKey = conversationId ? contactKey({ id: conversationId, phoneNumber, username }) : undefined;
+  // Typing indicator: only while the agent types, at most once every TYPING_INTERVAL_MS (server: local mode only).
+  const lastTypingRef = useRef<{ id?: string; at: number }>({ at: 0 });
+  const pingTyping = useCallback(() => {
+    if (!conversationId) return;
+    const now = Date.now();
+    if (!shouldSendTyping(lastTypingRef.current.id === conversationId ? lastTypingRef.current.at : undefined, now)) return;
+    lastTypingRef.current = { id: conversationId, at: now };
+    fetch('/api/messages/typing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversationId }) }).catch(() => {});
+  }, [conversationId]);
+  const assignmentKey = conversationId ? contactKey({ id: conversationId, phoneNumber, username, chatKey }) : undefined;
   const [assignment, setAssignment] = useState<ChatAssignment | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [assignBusy, setAssignBusy] = useState(false);
@@ -228,12 +239,16 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const msgSinceRef = useRef<{ id: string | null; seq: number | null }>({ id: null, seq: null });
   const fetchMessages = useCallback(async () => {
     if (!conversationId) return;
 
     try {
-      const response = await fetch(`/api/messages/${conversationId}`);
+      const since = msgSinceRef.current.id === conversationId ? msgSinceRef.current.seq : null;
+      const response = await fetch(`/api/messages/${conversationId}${since ? `?since=${since}` : ''}`);
+      if (response.status === 204) return; // local store: nothing changed
       const data = await response.json();
+      msgSinceRef.current = { id: conversationId, seq: typeof data.seq === 'number' ? data.seq : null };
 
       // Separate reactions from regular messages
       const reactions = (data.data || []).filter((msg: Message) => msg.messageType === 'reaction');
@@ -320,7 +335,7 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
 
   // Auto-polling for messages (every 5 seconds)
   useAutoPolling({
-    interval: 5000,
+    interval: msgSinceRef.current.seq !== null ? 3000 : 5000,
     enabled: !!conversationId,
     onPoll: fetchMessages
   });
@@ -758,7 +773,7 @@ export function MessageView({ conversationId, phoneNumber, bsuid, username, cont
               <Input
                 type="text"
                 value={messageInput}
-                onChange={(e) => setMessageInput(e.target.value)}
+                onChange={(e) => { setMessageInput(e.target.value); if (e.target.value.trim()) pingTyping(); }}
                 placeholder="Escribe un mensaje"
                 aria-label="Escribe un mensaje"
                               className="flex-1 bg-surface border-line focus-visible:ring-brand rounded-lg"

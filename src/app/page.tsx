@@ -8,6 +8,7 @@ type Conversation = {
   id: string;
   phoneNumber: string;
   bsuid?: string;
+  chatKey?: string;
   username?: string | null;
   contactName?: string;
 };
@@ -45,6 +46,7 @@ export default function Home() {
         conversationId={selectedConversation?.id}
         phoneNumber={selectedConversation?.phoneNumber}
         bsuid={selectedConversation?.bsuid}
+        chatKey={selectedConversation?.chatKey}
         username={selectedConversation?.username}
         contactName={selectedConversation?.contactName}
         onTemplateSent={handleTemplateSent}
