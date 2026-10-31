@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
-import { getUserById } from '@/lib/db';
+import { getDb, getUserById } from '@/lib/db';
+import { clearOffShift } from '@/lib/shift';
+import { safeError } from '@/lib/log';
 import { assignTo, getAssignment, isValidKey, reopen, resolve } from '@/lib/assignments';
 
 export const runtime = 'nodejs';
@@ -38,6 +40,7 @@ export async function POST(request: Request) {
     case 'take':
       if (!unassigned && !isMine && !isManager) return forbid(`Este chat ya está asignado a ${a.assignedName ?? 'otro usuario'}`);
       assignTo(key, me.id);
+      try { clearOffShift(getDb(), key); } catch (e) { safeError('off-shift', e); }
       break;
     case 'release':
       if (unassigned) break;

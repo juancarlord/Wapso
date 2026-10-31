@@ -12,7 +12,7 @@ const iso = (ms: number | null | undefined) => (ms ? new Date(Number(ms)).toISOS
 const MEDIA = ['image', 'video', 'audio', 'document', 'sticker'];
 
 type ConvRow = { id: string; contact_key: string; last_message_at: number | null; last_inbound_at: number | null; last_message_preview: string | null;
-  last_message_type: string | null; last_direction: string | null; messages_count: number; phone: string | null; username: string | null; name: string | null; bsuid: string | null };
+  last_message_type: string | null; last_direction: string | null; messages_count: number; off_shift_since?: number | null; off_shift_cutover?: number | null; phone: string | null; username: string | null; name: string | null; bsuid: string | null };
 
 export function listLocalConversations(db: DatabaseSync, phoneNumberId: string, limit = 100) {
   const rows = db.prepare(
@@ -32,6 +32,8 @@ export function listLocalConversations(db: DatabaseSync, phoneNumberId: string, 
     lastInboundAt: iso(r.last_inbound_at),
     contactName: r.name ?? undefined,
     messagesCount: Number(r.messages_count),
+    offShiftSince: iso(r.off_shift_since) ?? null, // KC1 "Fuera de turno" queue
+    offShiftCutover: Boolean(r.off_shift_cutover),
     lastMessage: r.last_message_preview
       ? { content: r.last_message_preview, direction: (r.last_direction === 'outbound' ? 'outbound' : 'inbound') as 'inbound' | 'outbound', type: r.last_message_type ?? undefined }
       : undefined,

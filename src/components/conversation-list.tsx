@@ -34,6 +34,8 @@ type Conversation = {
   assignedUserId?: number | null;
   assignedName?: string | null;
   chatStatus?: 'open' | 'resolved';
+  offShiftSince?: string | null;
+  offShiftCutover?: boolean;
   lastMessage?: {
     content: string;
     direction: string;
@@ -83,12 +85,13 @@ function getAvatarInitials(contactName?: string, phoneNumber?: string): string {
   return '??';
 }
 
-type Tab = 'mine' | 'unassigned' | 'all' | 'resolved';
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'mine', label: 'Mis chats' },
-  { id: 'unassigned', label: 'Sin asignar' },
-  { id: 'all', label: 'Todos' },
-  { id: 'resolved', label: 'Resueltos' },
+type Tab = 'offshift' | 'mine' | 'unassigned' | 'all' | 'resolved';
+const TABS: { id: Tab; label: string; full: string }[] = [
+  { id: 'offshift', label: 'Fuera', full: 'Fuera de turno' },
+  { id: 'mine', label: 'Míos', full: 'Mis chats' },
+  { id: 'unassigned', label: 'Sin asig.', full: 'Sin asignar' },
+  { id: 'all', label: 'Todos', full: 'Todos' },
+  { id: 'resolved', label: 'Resuel.', full: 'Resueltos' },
 ];
 
 type Props = {
@@ -114,6 +117,13 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [tab, setTab] = useState<Tab>('unassigned');
+  // KC1: at shift open, land on "Fuera de turno" first when it has chats (once per page load).
+  const offShiftDefaulted = useRef(false);
+  useEffect(() => {
+    if (offShiftDefaulted.current || conversations.length === 0) return;
+    offShiftDefaulted.current = true;
+    if (conversations.some((c) => c.offShiftSince)) setTab('offshift');
+  }, [conversations]);
   const [myId, setMyId] = useState<number | null>(null);
   const myIdRef = useRef<number | null>(null);
   
@@ -297,6 +307,7 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
 
   const inTab = (c: Conversation) => {
     const resolved = c.chatStatus === 'resolved';
+    if (tab === 'offshift') return Boolean(c.offShiftSince); // KC1 queue: includes resolved chats that wrote again
     if (tab === 'resolved') return resolved;
     if (resolved) return false;
     if (tab === 'mine') return myId != null && c.assignedUserId === myId;
@@ -305,6 +316,7 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
   };
   const tabCount = (t: Tab) => conversations.filter((c) => {
     const resolved = c.chatStatus === 'resolved';
+    if (t === 'offshift') return Boolean(c.offShiftSince);
     if (t === 'resolved') return resolved;
     if (resolved) return false;
     if (t === 'mine') return myId != null && c.assignedUserId === myId;
@@ -320,6 +332,8 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
       conv.contactName?.toLowerCase().includes(query)
     );
   });
+  // "Fuera de turno": oldest waiting first.
+  if (tab === 'offshift') filteredConversations.sort((a, b) => Date.parse(a.offShiftSince ?? '') - Date.parse(b.offShiftSince ?? ''));
 
   if (loading) {
     return (
@@ -395,20 +409,22 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
             className="pl-9 bg-surface border-line focus-visible:ring-brand rounded-lg"
           />
         </div>
-        <div role="tablist" aria-label="Filtrar chats" className="mt-3 grid grid-cols-4 gap-1 rounded-lg bg-surface p-1 border border-line">
+        <div role="tablist" aria-label="Filtrar chats" className="mt-3 grid grid-cols-5 gap-1 rounded-lg bg-surface p-1 border border-line">
           {TABS.map((t) => (
             <button
               key={t.id}
               role="tab"
               type="button"
               aria-selected={tab === t.id}
+              title={t.full}
+              aria-label={`${t.full} (${tabCount(t.id)})`}
               onClick={() => setTab(t.id)}
               className={cn(
-                'rounded-md px-1 py-1 text-xs font-medium transition-colors truncate',
+                'flex min-w-0 items-center justify-center gap-0.5 rounded-md px-1 py-1 text-xs font-medium transition-colors',
                 tab === t.id ? 'bg-brand text-white' : 'text-muted-fg hover:bg-line/30'
               )}
             >
-              {t.label} <span className="opacity-75">{tabCount(t.id)}</span>
+              <span className="truncate">{t.label}</span> <span className="shrink-0 opacity-75">{tabCount(t.id)}</span>
             </button>
           ))}
         </div>
