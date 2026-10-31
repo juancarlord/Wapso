@@ -5,6 +5,7 @@ import { upsertMessage, type StoredMessage } from '@/lib/inbox-store';
 import { IS_LOCAL, PHONE_NUMBER_ID, whatsappClient } from '@/lib/whatsapp-client';
 import { friendlySendError, graphErrorCode, readReceiptInput, shouldSendTyping } from '@/lib/send-rules';
 import { safeError } from '@/lib/log';
+import { clearOffShift } from '@/lib/shift';
 
 export const WINDOW_MS = 24 * 3600_000;
 
@@ -62,5 +63,6 @@ export function storeOutbound(to: string, waMessageId: string | undefined, m: Om
     const key = recipientKey(to);
     upsertMessage(getDb(), { key, phone: /^\d+$/.test(key) ? key : null, waId: /^\d+$/.test(key) ? key : null },
       { ...m, waMessageId, conversationId: key, direction: 'outbound', ts: Date.now(), source: 'send', status: 'sent' });
+    clearOffShift(getDb(), key); // agent replied: leaves "Fuera de turno"
   } catch (e) { safeError('outbound-store', e); }
 }

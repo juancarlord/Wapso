@@ -1,7 +1,29 @@
-export type Release = { id: string; title: string; subtitle?: string; items: string[] };
+export type Release = { id: string; title: string; subtitle?: string; items: string[]; en?: { title: string; items: string[] } };
 
 /** Changelog shown in the 'Novedades' modal. Newest first; the id must change for each release. */
 export const RELEASES: Release[] = [
+  // releases.kapsoExit (P-009-KC): shown after the cutover deploy.
+  {
+    id: '2026-10-31-kapso-exit',
+    title: 'Novedades',
+    items: [
+      'La bandeja ahora se conecta directamente con WhatsApp (Meta), sin intermediarios.',
+      'Todo el historial de chats, contactos, fotos y archivos se conserva en nuestro propio servidor.',
+      "Nueva pestaña 'Fuera de turno': los mensajes que llegan fuera del horario esperan ahí, los más antiguos primero.",
+      'Fuera del horario de atención (lunes a viernes, 7:00 a. m. a 5:00 p. m.), el cliente recibe un aviso automático una sola vez.',
+      "Los administradores pueden ajustar el horario y el mensaje en 'Horario y fuera de turno'.",
+    ],
+    en: {
+      title: "What's new",
+      items: [
+        'The inbox now connects directly to WhatsApp (Meta), with no intermediary.',
+        'All chat history, contacts, photos and files are kept on our own server.',
+        "New 'Fuera de turno' (After hours) tab: messages that arrive outside office hours wait there, oldest first.",
+        'Outside office hours (Monday to Friday, 7:00 a.m. to 5:00 p.m.), the customer gets one automatic notice.',
+        "Admins can change the hours and the message under 'Horario y fuera de turno'.",
+      ],
+    },
+  },
   {
     id: '2026-10-20',
     title: 'Novedades',

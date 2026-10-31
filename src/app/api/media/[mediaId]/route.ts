@@ -5,6 +5,7 @@ import { getDb } from '@/lib/db';
 import { mediaDir } from '@/lib/media-store';
 import { openMediaSource } from '@/lib/media-source';
 import { bucketConfig } from '@/lib/bucket';
+import { safeError } from '@/lib/log';
 import { contentDisposition, isTimeoutError, isAllowedMediaHost, safeMediaFetch } from '@/lib/media-token';
 
 export const runtime = 'nodejs';
@@ -38,7 +39,7 @@ export async function GET(
     }
     const upstreamType = upstream.headers.get('content-type') || '';
     if (!upstream.ok || !upstream.body || upstreamType.includes('application/json')) {
-      console.error('[media] upstream failed', upstream.status, upstreamType);
+      safeError('media', new Error('upstream failed'), { status: upstream.status, type: upstreamType.slice(0, 60) });
       await upstream.body?.cancel();
       return NextResponse.json({ error: 'Media unavailable' }, { status: 502, headers: NO_STORE });
     }
@@ -59,7 +60,7 @@ export async function GET(
       console.error('[media] upstream timeout');
       return NextResponse.json({ error: 'Media timeout' }, { status: 504, headers: NO_STORE });
     }
-    console.error('[media] fetch failed', error instanceof Error ? error.message : error);
+    safeError('media', error);
     return NextResponse.json({ error: 'Failed to fetch media' }, { status: 500, headers: NO_STORE });
   }
 }

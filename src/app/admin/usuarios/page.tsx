@@ -9,6 +9,7 @@ import { PasswordInput } from '@/components/password-input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { RowMenu } from '@/components/row-menu';
+import { ShiftCard } from '@/components/shift-card';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
 type Role = 'admin' | 'lead' | 'agent';
@@ -151,6 +152,7 @@ export default function UsersAdminPage() {
             </tbody>
           </table>
         </div>
+        {myRole === 'admin' && <ShiftCard />}
       </div>
       <Dialog open={!!resetUser} onOpenChange={(o) => { if (!o) { setResetUser(null); setResetPw(''); } }}>
         <DialogContent className="bg-surface text-fg border-line sm:max-w-sm">

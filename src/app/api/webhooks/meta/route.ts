@@ -5,6 +5,9 @@ import { safeError } from '@/lib/log';
 import { applyStatus, recordWebhookError, resolveContact, upsertMessage } from '@/lib/inbox-store';
 import { parseWebhook, verifyChallenge, verifySignature } from '@/lib/meta-webhook';
 import { enqueueMedia, requeuePending } from '@/lib/media-store';
+import { getShift, handleInbound, type AutoReplyJob } from '@/lib/shift';
+import { sendAutoRepliesLater } from '@/lib/after-hours';
+import { IS_LOCAL } from '@/lib/whatsapp-client';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,12 +52,21 @@ export async function POST(request: Request) {
     const parsed = parseWebhook(JSON.parse(raw.toString('utf8')), process.env.PHONE_NUMBER_ID);
     const db = getDb();
     let inserted = 0;
+    const jobs: AutoReplyJob[] = [];
+    const shift = parsed.inbound.length ? getShift(db) : null;
     for (const p of parsed.inbound) {
       const contact = resolveContact(db, p.contact, p.change);
       p.message.conversationId = contact.key; // one chat per contact; stable key across number/BSUID changes
       if (upsertMessage(db, contact, p.message, p.raw)) {
         inserted++;
         if (p.message.mediaId) enqueueMedia(db, { waMessageId: p.message.waMessageId, mediaId: p.message.mediaId }, onMediaFail);
+        // KC1 out-of-shift: queue flag + claim at most one auto-reply (local mode only; Kapso still answers in kapso mode).
+        if (IS_LOCAL && shift) {
+          try {
+            const job = handleInbound(db, { conversationId: contact.key, contactKey: contact.key, type: p.message.type, direction: p.message.direction, ts: p.message.ts, source: p.message.source }, shift);
+            if (job) jobs.push(job);
+          } catch (e) { safeError('off-shift', e); }
+        }
       }
     }
     for (const e of parsed.errors) {
@@ -66,7 +78,8 @@ export async function POST(request: Request) {
       if (s.status === 'failed') void alert('send_failed', { code: s.errorCode });
     }
     if (!g.__mediaRequeued) { g.__mediaRequeued = true; requeuePending(db, onMediaFail); }
-    console.log(`[webhook] in=${parsed.inbound.length} new=${inserted} statuses=${parsed.statuses.length} errors=${parsed.errors.length} ignored=${parsed.ignored}`);
+    sendAutoRepliesLater(jobs); // async after the 200 below; never blocks Meta's ack
+    console.log(`[webhook] auto=${jobs.length} in=${parsed.inbound.length} new=${inserted} statuses=${parsed.statuses.length} errors=${parsed.errors.length} ignored=${parsed.ignored}`);
   } catch (e) {
     safeError('webhook', e);
     void alert('webhook_processing');

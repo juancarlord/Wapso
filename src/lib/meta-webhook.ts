@@ -89,7 +89,9 @@ export function parseWebhook(body: unknown, phoneNumberId: string | undefined): 
     if (!phoneNumberId || v?.metadata?.phone_number_id !== phoneNumberId) { out.ignored++; continue; }
     if (Array.isArray(v.errors)) for (const e of v.errors) { const x = firstError([e]); if (x) out.errors.push(x); }
     const contacts = Array.isArray(v.contacts) ? v.contacts : [];
+    const own = str(v?.metadata?.display_phone_number)?.replace(/\D/g, '') ?? null;
     for (const m of Array.isArray(v.messages) ? v.messages : []) {
+      if (own && typeof m?.from === 'string' && m.from === own) { out.ignored++; continue; } // our own number: never an inbound user message
       const p = mapInboundMessage(m, contacts);
       if (p) out.inbound.push(p); else out.ignored++;
     }

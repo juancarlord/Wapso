@@ -3,6 +3,7 @@
 //   npm run kapso:export                          full export (idempotent; rerun inserts 0)
 //   npm run kapso:export -- --since=2026-10-20T23:00:00Z   delta
 //   --no-media   skip media downloads
+//   --cutover    (KC3 gap fill) inserted inbound messages go to the "Fuera de turno" queue flagged cutover; never auto-replied
 // Logs counts and ids only, never phone numbers, names or bodies.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,12 +11,14 @@ import { DatabaseSync } from 'node:sqlite';
 import { WhatsAppClient, buildKapsoFields } from '@kapso/whatsapp-cloud-api';
 import { ensureInboxSchema, upsertMessage, setMediaFile, type StoredMessage } from '../src/lib/inbox-store.ts';
 import { storeBytes, mediaDir } from '../src/lib/media-store.ts';
+import { ensureShiftSchema, markOffShift } from '../src/lib/shift.ts';
 
 if (fs.existsSync('.env')) process.loadEnvFile('.env');
 const args = new Set(process.argv.slice(2).filter((a) => !a.startsWith('--since=')));
 const DRY = args.has('--dry-run');
 const DEEP = args.has('--deep') || !DRY;
 const NO_MEDIA = args.has('--no-media');
+const CUTOVER = args.has('--cutover');
 const sinceArg = process.argv.find((a) => a.startsWith('--since='))?.slice(8);
 const SINCE = sinceArg ? Date.parse(sinceArg) : 0;
 if (sinceArg && !Number.isFinite(SINCE)) { console.error('bad --since'); process.exit(2); }
@@ -71,7 +74,7 @@ if (!DRY) {
   fs.mkdirSync(dir, { recursive: true });
   db = new DatabaseSync(path.join(dir, 'inbox.db'));
   db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
-  ensureInboxSchema(db);
+  ensureInboxSchema(db); ensureShiftSchema(db);
 }
 
 const tot = { conversations: 0, contacts: new Set<string>(), kapsoMessagesCount: 0, messages: 0, inserted: 0, media: 0, mediaBytes: 0, mediaUnknownSize: 0, downloaded: 0, mediaFailed: 0,
@@ -106,7 +109,10 @@ do {
         tot.messages++;
         if (m.mediaId || MEDIA.includes(m.type)) { tot.media++; if (m.mediaSize) tot.mediaBytes += m.mediaSize; else tot.mediaUnknownSize++; }
         if (!db) continue;
-        if (upsertMessage(db, { key }, m)) tot.inserted++;
+        if (upsertMessage(db, { key }, m)) {
+          tot.inserted++;
+          if (CUTOVER && m.direction === 'inbound' && m.type !== 'reaction' && m.type !== 'system') markOffShift(db, m.conversationId, m.ts, true);
+        }
         if (!NO_MEDIA && m.mediaId) {
           const have = db.prepare('SELECT media_path FROM messages WHERE wa_message_id=?').get(m.waMessageId) as { media_path: string | null } | undefined;
           if (have?.media_path) continue;

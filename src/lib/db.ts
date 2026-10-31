@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isValidHashFormat } from '@/lib/password';
 import { ensureInboxSchema, migrateLegacyKeys } from '@/lib/inbox-store';
+import { ensureShiftSchema } from '@/lib/shift';
 
 export type Role = 'admin' | 'lead' | 'agent';
 export const ROLES: Role[] = ['admin', 'lead', 'agent'];
@@ -78,6 +79,7 @@ function init(): DatabaseSync {
   `);
   // P-009: own message store (contacts, conversations, messages, statuses, meta_events, kv). Idempotent.
   ensureInboxSchema(db);
+  ensureShiftSchema(db);
   try {
     const r = migrateLegacyKeys(db);
     if (r.reads || r.assignments) console.log(`[inbox] rekeyed legacy rows: reads=${r.reads} assignments=${r.assignments}`);
