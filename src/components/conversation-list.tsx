@@ -91,7 +91,7 @@ const TABS: { id: Tab; label: string; full: string }[] = [
   { id: 'mine', label: 'Míos', full: 'Mis chats' },
   { id: 'unassigned', label: 'Sin asig.', full: 'Sin asignar' },
   { id: 'all', label: 'Todos', full: 'Todos' },
-  { id: 'resolved', label: 'Resueltos', full: 'Resueltos' },
+  { id: 'resolved', label: 'Resuel.', full: 'Resueltos' },
 ];
 
 type Props = {
