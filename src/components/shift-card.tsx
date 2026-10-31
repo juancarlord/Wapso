@@ -57,7 +57,7 @@ export function ShiftCard() {
       </div>
       {(['es', 'en'] as const).map((l) => (
         <div key={l} className="mt-3">
-          <Label htmlFor={`sh-${l}`}>Mensaje ({l})</Label>
+          <Label htmlFor={`sh-${l}`}>{l === 'es' ? 'Español' : 'English'}</Label>
           <textarea id={`sh-${l}`} rows={4} maxLength={1000} className="mt-1 w-full rounded border border-line bg-transparent p-2 text-sm"
             value={s.afterHoursText[l]} onChange={(e) => setS({ ...s, afterHoursText: { ...s.afterHoursText, [l]: e.target.value } })} />
         </div>

@@ -86,12 +86,12 @@ function getAvatarInitials(contactName?: string, phoneNumber?: string): string {
 }
 
 type Tab = 'offshift' | 'mine' | 'unassigned' | 'all' | 'resolved';
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'offshift', label: 'Fuera de turno' },
-  { id: 'mine', label: 'Mis chats' },
-  { id: 'unassigned', label: 'Sin asignar' },
-  { id: 'all', label: 'Todos' },
-  { id: 'resolved', label: 'Resueltos' },
+const TABS: { id: Tab; label: string; full: string }[] = [
+  { id: 'offshift', label: 'Fuera', full: 'Fuera de turno' },
+  { id: 'mine', label: 'Míos', full: 'Mis chats' },
+  { id: 'unassigned', label: 'Sin asig.', full: 'Sin asignar' },
+  { id: 'all', label: 'Todos', full: 'Todos' },
+  { id: 'resolved', label: 'Resueltos', full: 'Resueltos' },
 ];
 
 type Props = {
@@ -416,13 +416,15 @@ export const ConversationList = forwardRef<ConversationListRef, Props>(
               role="tab"
               type="button"
               aria-selected={tab === t.id}
+              title={t.full}
+              aria-label={`${t.full} (${tabCount(t.id)})`}
               onClick={() => setTab(t.id)}
               className={cn(
-                'rounded-md px-1 py-1 text-xs font-medium transition-colors truncate',
+                'flex min-w-0 items-center justify-center gap-0.5 rounded-md px-1 py-1 text-xs font-medium transition-colors',
                 tab === t.id ? 'bg-brand text-white' : 'text-muted-fg hover:bg-line/30'
               )}
             >
-              {t.label} <span className="opacity-75">{tabCount(t.id)}</span>
+              <span className="truncate">{t.label}</span> <span className="shrink-0 opacity-75">{tabCount(t.id)}</span>
             </button>
           ))}
         </div>
