@@ -22,8 +22,11 @@ function inbound(db: DatabaseSync, ts: number, opts: { key?: string; type?: stri
 }
 const off = (db: DatabaseSync, key = '573000000001') => (db.prepare('SELECT off_shift_since AS t, off_shift_cutover AS c FROM conversations WHERE id=?').get(key) as { t: number | null; c: number | null });
 
-test('defaults: Mon–Fri 07:00–17:00 America/Bogota, Edna es text, enabled', () => {
-  assert.deepEqual(S.days, [1, 2, 3, 4, 5]);
+test('defaults (AC-KC1-1): Mon–Fri 07:00–17:00 + Sat 07:00–12:00 America/Bogota, Edna es text, enabled', () => {
+  assert.deepEqual(S.days, [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(S.dayClose, { '6': '12:00' });
+  assert.match(S.afterHoursText.es, /sábados de 7:00 a\. m\. a 12:00 m\./);
+  assert.match(S.afterHoursText.en, /Saturday, 7:00 a\.m\. to 12:00 p\.m\./);
   assert.equal(S.timezone, 'America/Bogota');
   assert.equal(S.enabled, true);
   assert.equal(S.afterHoursText.es, DEFAULT_TEXT_ES);
@@ -31,21 +34,51 @@ test('defaults: Mon–Fri 07:00–17:00 America/Bogota, Edna es text, enabled', 
   assert.match(S.afterHoursText.en, /does not deliver exam results/);
 });
 
-test('shift boundaries 16:59 / 17:00 / 06:59 / 07:00 COT, Saturday + Sunday closed', () => {
+test('shift boundaries 16:59 / 17:00 / 06:59 / 07:00 COT, Sunday closed', () => {
   assert.equal(isOpenAt(cot('2026-10-30T16:59:59'), S), true);
   assert.equal(isOpenAt(cot('2026-10-30T17:00:00'), S), false);
   assert.equal(isOpenAt(cot('2026-10-30T06:59:59'), S), false);
   assert.equal(isOpenAt(cot('2026-10-30T07:00:00'), S), true);
-  assert.equal(isOpenAt(cot('2026-10-31T10:00:00'), S), false); // Sat (Lock L1: no Saturday hours)
   assert.equal(isOpenAt(cot('2026-11-01T10:00:00'), S), false); // Sun
   assert.equal(isOpenAt(cot('2026-11-02T07:00:00'), S), true);  // Mon
 });
 
-test('closed period: Fri 17:00 → Mon 07:00 is ONE period; weekday night is its own', () => {
+test('AC-KC1-1 Saturday midday: Sat 07:00–11:59 open, 06:59 / 12:00+ closed; Sunday closed', () => {
+  assert.equal(isOpenAt(cot('2026-10-31T06:59:59'), S), false);
+  assert.equal(isOpenAt(cot('2026-10-31T07:00:00'), S), true);
+  assert.equal(isOpenAt(cot('2026-10-31T10:00:00'), S), true);
+  assert.equal(isOpenAt(cot('2026-10-31T11:59:59'), S), true);
+  assert.equal(isOpenAt(cot('2026-10-31T12:00:00'), S), false);
+  assert.equal(isOpenAt(cot('2026-10-31T15:00:00'), S), false);
+  assert.equal(isOpenAt(cot('2026-11-01T00:00:00'), S), false); // Sun
+  assert.equal(isOpenAt(cot('2026-11-01T10:00:00'), S), false);
+  assert.equal(isOpenAt(cot('2026-11-01T23:59:59'), S), false);
+});
+
+test('AC-KC1-1 Saturday after 12:00 → one auto-reply + Fuera de turno; Sunday same period', () => {
+  const db = db0();
+  assert.equal(inbound(db, cot('2026-10-31T11:30:00')).job, null);
+  assert.equal(off(db).t, null);
+  assert.ok(inbound(db, cot('2026-10-31T12:00:00')).job);
+  assert.equal(off(db).t, cot('2026-10-31T12:00:00'));
+  assert.equal(inbound(db, cot('2026-11-01T10:00:00')).job, null); // Sunday = same period as Sat 12:00
+});
+
+test('validate dayClose', () => {
+  assert.equal(validateShift({ dayClose: { '6': '13:00' } }).ok, true);
+  assert.equal(validateShift({ dayClose: { '7': '12:00' } }).ok, false);
+  assert.equal(validateShift({ dayClose: { '6': '06:00' } }).ok, false);
+  assert.equal(validateShift({ dayClose: [] }).ok, false);
+});
+
+test('closed period: Fri 17:00 → Sat 07:00; Sat 12:00 → Mon 07:00 is ONE period; weekday night is its own', () => {
   const fri = cot('2026-10-30T17:00:00');
+  const sat = cot('2026-10-31T12:00:00');
   assert.equal(closedPeriodStart(cot('2026-10-30T17:00:00'), S), fri);
-  assert.equal(closedPeriodStart(cot('2026-10-31T12:00:00'), S), fri);
-  assert.equal(closedPeriodStart(cot('2026-11-02T06:59:00'), S), fri);
+  assert.equal(closedPeriodStart(cot('2026-10-31T06:59:00'), S), fri);
+  assert.equal(closedPeriodStart(cot('2026-10-31T12:00:00'), S), sat);
+  assert.equal(closedPeriodStart(cot('2026-11-01T12:00:00'), S), sat);
+  assert.equal(closedPeriodStart(cot('2026-11-02T06:59:00'), S), sat);
   assert.equal(closedPeriodStart(cot('2026-11-03T05:00:00'), S), cot('2026-11-02T17:00:00'));
 });
 
@@ -57,7 +90,8 @@ test('AC-K6: 16:59 → no reply, not queued; 17:00 → exactly one reply; second
   assert.ok(a.job);
   assert.equal(a.job!.text, DEFAULT_TEXT_ES);
   assert.equal(inbound(db, cot('2026-10-30T20:00:00')).job, null);
-  assert.equal(inbound(db, cot('2026-10-31T09:00:00')).job, null); // Saturday = same closed period
+  assert.equal(inbound(db, cot('2026-10-31T06:30:00')).job, null); // Sat before 07:00 = same closed period
+  assert.equal(inbound(db, cot('2026-10-31T09:00:00')).job, null); // Sat 09:00 = open (AC-KC1-1)
   assert.ok(inbound(db, cot('2026-10-30T21:00:00'), { key: '573000000002' }).job); // other contact gets their own
   // Next closed period (Mon night) → a new reply
   assert.ok(inbound(db, cot('2026-11-02T18:00:00')).job);

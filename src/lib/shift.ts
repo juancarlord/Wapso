@@ -6,17 +6,18 @@ export type ShiftSettings = {
   timezone: string;        // IANA, e.g. America/Bogota
   open: string;            // HH:MM local
   close: string;           // HH:MM local (exclusive: 17:00:00 is closed)
-  days: number[];          // 0=Sun … 6=Sat. Lock L1: Mon–Fri only
+  days: number[];          // 0=Sun … 6=Sat. AC-KC1-1 lock: Mon–Sat (Sat closes early, see dayClose)
+  dayClose: Record<string, string>; // per-weekday close override, e.g. { '6': '12:00' } (Sat 07:00–12:00)
   lang: 'es' | 'en';       // which text is sent
   afterHoursText: { es: string; en: string };
 };
 
 // Edna PASS WITH NOTES (KC1 copy lock). Admin can edit later.
-export const DEFAULT_TEXT_ES = 'Hola 👋 Gracias por escribir a Mundo Radiológico. Nuestro horario de atención es de lunes a viernes de 7:00 a. m. a 5:00 p. m. (hora de Colombia). Tu mensaje quedó registrado; te responderemos en el próximo horario de atención. Este canal no entrega resultados de estudios. Si es una urgencia, acude al servicio de urgencias más cercano.';
-export const DEFAULT_TEXT_EN = 'Hi 👋 Thanks for messaging Mundo Radiológico. Our office hours are Monday to Friday, 7:00 a.m. to 5:00 p.m. (Colombia time). Your message was received; we’ll reply during our next business hours. This channel does not deliver exam results. If this is an emergency, please go to the nearest emergency room.';
+export const DEFAULT_TEXT_ES = 'Hola 👋 Gracias por escribir a Mundo Radiológico. Nuestro horario de atención es de lunes a viernes de 7:00 a. m. a 5:00 p. m. y sábados de 7:00 a. m. a 12:00 m. (hora de Colombia). Tu mensaje quedó registrado; te responderemos en el próximo horario de atención. Este canal no entrega resultados de estudios. Si es una urgencia, acude al servicio de urgencias más cercano.';
+export const DEFAULT_TEXT_EN = 'Hi 👋 Thanks for messaging Mundo Radiológico. Our office hours are Monday to Friday, 7:00 a.m. to 5:00 p.m., and Saturday, 7:00 a.m. to 12:00 p.m. (Colombia time). Your message was received; we’ll reply during our next business hours. This channel does not deliver exam results. If this is an emergency, please go to the nearest emergency room.';
 
 export const DEFAULT_SHIFT: ShiftSettings = {
-  enabled: true, timezone: 'America/Bogota', open: '07:00', close: '17:00', days: [1, 2, 3, 4, 5], lang: 'es',
+  enabled: true, timezone: 'America/Bogota', open: '07:00', close: '17:00', days: [1, 2, 3, 4, 5, 6], dayClose: { '6': '12:00' }, lang: 'es',
   afterHoursText: { es: DEFAULT_TEXT_ES, en: DEFAULT_TEXT_EN },
 };
 
@@ -39,7 +40,7 @@ function validTz(tz: unknown): tz is string {
 export function validateShift(input: unknown, base: ShiftSettings = DEFAULT_SHIFT): { ok: true; value: ShiftSettings } | { ok: false; error: string } {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: false, error: 'Datos inválidos' };
   const i = input as Record<string, unknown>;
-  const v: ShiftSettings = { ...base, afterHoursText: { ...base.afterHoursText }, days: [...base.days] };
+  const v: ShiftSettings = { ...base, afterHoursText: { ...base.afterHoursText }, days: [...base.days], dayClose: { ...(base.dayClose ?? {}) } };
   if ('enabled' in i) { if (typeof i.enabled !== 'boolean') return { ok: false, error: 'enabled inválido' }; v.enabled = i.enabled; }
   if ('timezone' in i) { if (!validTz(i.timezone)) return { ok: false, error: 'Zona horaria inválida' }; v.timezone = i.timezone; }
   for (const k of ['open', 'close'] as const) if (k in i) {
@@ -47,6 +48,17 @@ export function validateShift(input: unknown, base: ShiftSettings = DEFAULT_SHIF
     v[k] = i[k] as string;
   }
   if (toMin(v.open) >= toMin(v.close)) return { ok: false, error: 'La apertura debe ser antes del cierre' };
+  if ('dayClose' in i) {
+    const dc = i.dayClose as Record<string, unknown> | null;
+    if (!dc || typeof dc !== 'object' || Array.isArray(dc)) return { ok: false, error: 'Cierre por día inválido' };
+    const out: Record<string, string> = {};
+    for (const [k, t] of Object.entries(dc)) {
+      if (!/^[0-6]$/.test(k) || typeof t !== 'string' || !HHMM.test(t)) return { ok: false, error: 'Cierre por día inválido' };
+      out[k] = t;
+    }
+    v.dayClose = out;
+  }
+  for (const t of Object.values(v.dayClose)) if (toMin(v.open) >= toMin(t)) return { ok: false, error: 'La apertura debe ser antes del cierre' };
   if ('days' in i) {
     if (!Array.isArray(i.days) || i.days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) return { ok: false, error: 'Días inválidos' };
     v.days = [...new Set(i.days as number[])].sort();
@@ -96,11 +108,14 @@ function zoned(y: number, mo: number, d: number, minutes: number, tz: string): n
   return t;
 }
 
+/** Close time for a weekday (per-day override, else the general close). */
+export function closeFor(dow: number, s: ShiftSettings): string { return s.dayClose?.[String(dow)] ?? s.close; }
+
 export function isOpenAt(ts: number, s: ShiftSettings): boolean {
   const p = parts(ts, s.timezone);
   if (!s.days.includes(p.dow)) return false;
   const m = p.h * 60 + p.mi;
-  return m >= toMin(s.open) && m < toMin(s.close);
+  return m >= toMin(s.open) && m < toMin(closeFor(p.dow, s));
 }
 
 /** Start of the closed period containing ts (= the most recent shift close at or before ts). Stable id for the throttle. */
@@ -108,7 +123,7 @@ export function closedPeriodStart(ts: number, s: ShiftSettings): number {
   for (let k = 0; k <= 8; k++) {
     const p = parts(ts - k * 86_400_000, s.timezone);
     if (!s.days.includes(p.dow)) continue;
-    const close = zoned(p.y, p.mo, p.d, toMin(s.close), s.timezone);
+    const close = zoned(p.y, p.mo, p.d, toMin(closeFor(p.dow, s)), s.timezone);
     if (close <= ts) return close;
   }
   return 0; // no shift days configured: one period forever

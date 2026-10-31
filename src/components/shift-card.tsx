@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-type Settings = { enabled: boolean; timezone: string; open: string; close: string; days: number[]; lang: 'es' | 'en'; afterHoursText: { es: string; en: string } };
+type Settings = { enabled: boolean; timezone: string; open: string; close: string; days: number[]; dayClose: Record<string, string>; lang: 'es' | 'en'; afterHoursText: { es: string; en: string } };
 const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
 export function ShiftCard() {
@@ -42,6 +42,8 @@ export function ShiftCard() {
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <div><Label htmlFor="sh-open">Abre</Label><Input id="sh-open" type="time" value={s.open} onChange={(e) => setS({ ...s, open: e.target.value })} /></div>
         <div><Label htmlFor="sh-close">Cierra</Label><Input id="sh-close" type="time" value={s.close} onChange={(e) => setS({ ...s, close: e.target.value })} /></div>
+        <div><Label htmlFor="sh-sat-close">Sáb cierra</Label><Input id="sh-sat-close" type="time" value={s.dayClose?.['6'] ?? s.close}
+          onChange={(e) => setS({ ...s, dayClose: { ...(s.dayClose ?? {}), '6': e.target.value } })} /></div>
         <div className="flex gap-1">
           {DAYS.map((d, i) => (
             <button key={d} type="button" onClick={() => toggleDay(i)} aria-pressed={s.days.includes(i)}
